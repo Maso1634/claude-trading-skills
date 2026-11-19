@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timezone
 
@@ -142,3 +143,28 @@ def test_report_dates_show_in_local_time(reports_dir, state_dir):
     assert "Nov 18" in tile and "Nov 19" not in tile
     reports_page = app.test_client().get("/reports").get_data(as_text=True)
     assert "2026-11-18 23:03" in reports_page
+
+
+def test_vcp_tile_says_when_screen_could_not_run(reports_dir, state_dir):
+    # A screen where the FMP plan blocked every stock is not "no candidates".
+    (reports_dir / "vcp_screener_2026-11-19_090000.json").write_text(
+        json.dumps(
+            {
+                "results": [],
+                "evaluation_coverage": {
+                    "universe_size": 503,
+                    "evaluated": 0,
+                    "not_evaluated": 503,
+                    "not_evaluated_reasons": {"plan_gated": 15, "provider_error": 488},
+                    "verdict": "not_evaluable",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = create_app({"REPORTS_DIR": reports_dir, "STATE_DIR": state_dir, "ALPACA": None})
+    body = app.test_client().get("/").get_data(as_text=True)
+    tile = body.split("Latest VCP screen", 1)[1]
+    assert "couldn't run" in tile
+    assert "0 of 503" in tile
+    assert "found no candidates" not in tile

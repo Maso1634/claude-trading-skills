@@ -147,7 +147,17 @@
 
 <section class="panel">
   <h2>Latest VCP screen {{ freshness(vcp) }}</h2>
-  {% if vcp_rows %}
+  {% set cov = (vcp.data.evaluation_coverage if vcp else none) or {} %}
+  {% if cov.verdict == 'not_evaluable' %}
+    {% set why = cov.not_evaluated_reasons or {} %}
+    <p class="warn">The last screen couldn't run: {{ cov.evaluated or 0 }} of {{ cov.universe_size or '?' }} stocks evaluated.</p>
+    <p class="small muted">
+      {% if why.plan_gated %}{{ why.plan_gated }} blocked by your FMP plan. {% endif %}
+      {% if why.provider_error %}{{ why.provider_error }} failed to load. {% endif %}
+      The screener needs a paid FMP plan (batch quotes and the full S&amp;P 500). To stop running it, set <code>RUN_VCP=false</code> in <code>.env</code>.
+    </p>
+    {{ report_link(vcp) }}
+  {% elif vcp_rows %}
   <div class="scroll"><table>
     <thead><tr><th>Symbol</th><th>Rating</th><th class="num">Score</th><th class="num">Price</th><th class="num">From pivot</th><th>State</th></tr></thead>
     <tbody>
