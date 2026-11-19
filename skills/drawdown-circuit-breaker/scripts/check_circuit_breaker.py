@@ -36,6 +36,18 @@ from _market_calendar import (
 )
 
 ET = ZoneInfo("America/New_York")
+
+
+def report_stamp(now: datetime | None = None) -> str:
+    """Filename stamp in US Eastern (market) time, whatever clock runs this script.
+
+    Keeps a run on its trading day: an evening run in a UTC container would
+    otherwise be stamped with tomorrow's date.
+    """
+    now = now or datetime.now(timezone.utc)
+    return now.astimezone(ET).strftime("%Y-%m-%d_%H%M%S")
+
+
 TERMINAL_STATUSES = {"CLOSED", "INVALIDATED"}
 THESIS_STATUSES = {"IDEA", "ENTRY_READY", "ACTIVE", "PARTIALLY_CLOSED", *TERMINAL_STATUSES}
 REQUIRED_HISTORY_STATUSES = {"ACTIVE", "PARTIALLY_CLOSED", *TERMINAL_STATUSES}
@@ -789,8 +801,8 @@ def write_reports(result: dict, output_dir: Path, json_only: bool) -> tuple[Path
     json_text = json.dumps(result, indent=2, allow_nan=False) + "\n"
     markdown_text = None if json_only else generate_markdown_report(result)
     output_dir.mkdir(parents=True, exist_ok=True)
-    generated_at = _parse_datetime(result["generated_at"]).astimezone(timezone.utc)
-    timestamp = generated_at.strftime("%Y-%m-%d_%H%M%S")
+    generated_at = _parse_datetime(result["generated_at"])
+    timestamp = report_stamp(generated_at)
     json_path = output_dir / f"circuit_breaker_decision_{timestamp}.json"
     json_path.write_text(json_text, encoding="utf-8")
 

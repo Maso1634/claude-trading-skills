@@ -23,8 +23,9 @@ Output:
 import argparse
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -44,6 +45,19 @@ from coverage_client import failure_reason, history_problem, quote_problem
 from evaluation_coverage import build_evaluation_coverage
 from report_generator import generate_json_report, generate_markdown_report
 from scorer import calculate_composite_score
+
+MARKET_TZ = ZoneInfo("America/New_York")
+
+
+def report_stamp(now: datetime | None = None) -> str:
+    """Filename stamp in US Eastern (market) time, whatever clock runs this script.
+
+    Keeps a run on its trading day: an evening run in a UTC container would
+    otherwise be stamped with tomorrow's date.
+    """
+    now = now or datetime.now(timezone.utc)
+    return now.astimezone(MARKET_TZ).strftime("%Y-%m-%d_%H%M%S")
+
 
 # Historical scan window default (~5 years in trading days). Used by
 # argparse `const=` so bare `--history` keeps the prior default behavior.
@@ -641,7 +655,7 @@ def run_historical(args, client) -> None:
     os.makedirs(args.output_dir, exist_ok=True)
     # Use the same YYYY-MM-DD_HHMMSS pattern as the cross-sectional report so
     # repeated same-day runs don't overwrite previous output.
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = report_stamp()
     json_file = os.path.join(args.output_dir, f"vcp_history_{ticker}_{timestamp}.json")
     md_file = os.path.join(args.output_dir, f"vcp_history_{ticker}_{timestamp}.md")
     history_range = ""
@@ -951,7 +965,7 @@ def main():
     print("-" * 70)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = report_stamp()
     json_file = os.path.join(args.output_dir, f"vcp_screener_{timestamp}.json")
     md_file = os.path.join(args.output_dir, f"vcp_screener_{timestamp}.md")
 

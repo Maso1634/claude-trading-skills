@@ -13,10 +13,24 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluation_coverage import evaluation_input_usable
 from provenance_contract import validate_market_inputs
+
+MARKET_TZ = ZoneInfo("America/New_York")
+
+
+def report_stamp(now: datetime | None = None) -> str:
+    """Filename stamp in US Eastern (market) time, whatever clock runs this script.
+
+    Keeps a run on its trading day: an evening run in a UTC container would
+    otherwise be stamped with tomorrow's date.
+    """
+    now = now or datetime.now(timezone.utc)
+    return now.astimezone(MARKET_TZ).strftime("%Y-%m-%d_%H%M%S")
+
 
 # Component weights for composite score
 WEIGHTS = {
@@ -820,7 +834,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate timestamp for filenames
-    timestamp = now.strftime("%Y-%m-%d_%H%M%S")
+    timestamp = report_stamp(now)
 
     # Write JSON
     json_path = args.output_dir / f"exposure_posture_{timestamp}.json"
