@@ -1,3 +1,6 @@
+import os
+from datetime import datetime, timezone
+
 import pytest
 from app import create_app
 
@@ -117,3 +120,25 @@ def test_mode_banner_on_every_page(reports_dir, state_dir, paper, word, css):
 
 def test_no_banner_without_broker(client):
     assert "banner-" not in client.get("/").get_data(as_text=True)
+
+
+def test_report_dates_show_in_local_time(reports_dir, state_dir):
+    # 04:03 UTC on Nov 19 is 11:03 PM Eastern on Nov 18.
+    written = datetime(2026, 11, 19, 4, 3, tzinfo=timezone.utc).timestamp()
+    for path in reports_dir.glob("circuit_breaker_decision_*.json"):
+        utc_named = path.with_name("circuit_breaker_decision_2026-11-19_040300.json")
+        path.rename(utc_named)
+        os.utime(utc_named, (written, written))
+    app = create_app(
+        {
+            "REPORTS_DIR": reports_dir,
+            "STATE_DIR": state_dir,
+            "ALPACA": None,
+            "TIMEZONE": "America/New_York",
+        }
+    )
+    html = app.test_client().get("/").get_data(as_text=True)
+    tile = html.split("Circuit breaker", 1)[1][:300]
+    assert "Nov 18" in tile and "Nov 19" not in tile
+    reports_page = app.test_client().get("/reports").get_data(as_text=True)
+    assert "2026-11-18 23:03" in reports_page

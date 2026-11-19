@@ -6,7 +6,7 @@
   <h2>{{ report_types[key][0] }}</h2>
   <ul class="files">
   {% for r in rows %}
-    <li><span class="muted small">{{ r.stamp.strftime('%Y-%m-%d %H:%M') if r.stamp else '' }}</span>
+    <li><span class="muted small">{{ (r.stamp | local).strftime('%Y-%m-%d %H:%M') if r.stamp else '' }}</span>
       {% if r.md_name %}<a href="{{ url_for('report_view', relname=r.md_name) }}">report</a> ·{% endif %}
       <a href="{{ url_for('report_view', relname=r.name) }}">{{ r.name }}</a></li>
   {% endfor %}
