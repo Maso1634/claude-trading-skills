@@ -39,6 +39,25 @@ python3 skills/vcp-screener/scripts/screen_vcp.py --universe AAPL NVDA MSFT AMZN
 python3 skills/vcp-screener/scripts/screen_vcp.py --full-sp500 --output-dir skills/vcp-screener/scripts
 ```
 
+### Daily-bar data sources (no FMP batch quotes needed)
+
+FMP's free plan refuses batch quotes, so the default FMP path cannot screen the
+full S&P 500 on a free key. Use `--data-source auto` to screen from daily bars
+instead: Alpaca SIP (consolidated tape, split-adjusted; needs `ALPACA_API_KEY`
+and `ALPACA_SECRET_KEY`, free plan works because the request ends 16 minutes
+ago), then yfinance for any symbol Alpaca missed, then FMP. The shown results
+are cross-checked against a second source; each result carries `data_source`
+and `cross_check.status` (`ok`, `mismatch` above 1% price gap, `volume_mismatch`
+above 20%, `stale`, `unavailable`). Treat a flagged result as unverified until
+its chart is checked.
+
+```bash
+python3 skills/vcp-screener/scripts/screen_vcp.py --data-source auto --output-dir reports/
+```
+
+On a free FMP key with `--data-source fmp`, pass `--universe` with about 100
+symbols and `--max-api-calls 240` to stay inside 250 calls a day.
+
 ### Strict Mode (Minervini pure setup)
 
 Only return stocks with `valid_vcp=True` AND `execution_state` in `(Pre-breakout, Breakout)`:

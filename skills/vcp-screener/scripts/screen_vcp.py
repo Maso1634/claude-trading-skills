@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
+from bar_sources import SourceError, build_bars_client
 from calculators.execution_state import compute_execution_state
 from calculators.pattern_classifier import classify_pattern
 from calculators.pivot_proximity_calculator import calculate_pivot_proximity
@@ -84,6 +85,15 @@ def parse_arguments():
     parser.add_argument("--output-dir", default="reports/", help="Output directory for reports")
     parser.add_argument(
         "--universe", nargs="+", help="Custom symbols to screen (overrides S&P 500)"
+    )
+    parser.add_argument(
+        "--data-source",
+        choices=["fmp", "auto", "alpaca", "yfinance"],
+        default="fmp",
+        help="Where prices come from. fmp (default): FMP quotes + histories. "
+        "auto: Alpaca SIP daily bars, then yfinance, then FMP, with finalists "
+        "cross-checked against a second source. alpaca / yfinance: that source only. "
+        "Alpaca needs ALPACA_API_KEY and ALPACA_SECRET_KEY.",
     )
     parser.add_argument(
         "--max-api-calls",
@@ -708,13 +718,26 @@ def main():
     print("=" * 70)
     print()
 
-    # Initialize FMP client
-    try:
-        client = FMPClient(api_key=args.api_key, max_api_calls=args.max_api_calls)
-        print("FMP API client initialized")
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Initialize the data client
+    if args.data_source == "fmp" or args.history is not None:
+        try:
+            client = FMPClient(api_key=args.api_key, max_api_calls=args.max_api_calls)
+            print("FMP API client initialized")
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            fmp_client = FMPClient(api_key=args.api_key, max_api_calls=args.max_api_calls)
+        except ValueError:
+            fmp_client = None
+        try:
+            client = build_bars_client(args.data_source, fmp_client=fmp_client)
+        except SourceError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+        names = ", ".join(s.name for s in client.sources)
+        print(f"Daily-bar data sources (in order): {names}")
 
     # ------------------------------------------------------------------------
     # Historical single-ticker mode dispatch — completes via early return.
@@ -785,7 +808,9 @@ def main():
 
     # Sort by Stage 2 likelihood, take top candidates
     pre_filtered.sort(key=lambda x: x[1], reverse=True)
-    max_candidates = len(pre_filtered) if args.full_sp500 else args.max_candidates
+    # Daily-bar sources already hold every history, so nothing to ration.
+    prefetched = getattr(client, "histories_prefetched", False)
+    max_candidates = len(pre_filtered) if args.full_sp500 or prefetched else args.max_candidates
     candidates = pre_filtered[:max_candidates]
 
     print(f"{len(pre_filtered)} passed, taking top {len(candidates)}")
@@ -967,6 +992,30 @@ def main():
         print(f"  Strict mode filter: {total_before} -> {len(results)} candidates")
         print()
 
+    # Record where each result's prices came from, and cross-check the ones
+    # that will be shown against a second source.
+    cross_check_summary = None
+    if prefetched:
+        for r in results:
+            r["data_source"] = client.source_of.get(r["symbol"])
+        shown = [r["symbol"] for r in results[: args.top]]
+        if shown and client.cross_check_sources:
+            print(f"Cross-checking {len(shown)} results against a second source...")
+            checks = client.cross_check(shown)
+            for r in results[: args.top]:
+                r["cross_check"] = checks.get(r["symbol"], {"status": "unavailable"})
+            cross_check_summary = {}
+            for check in checks.values():
+                cross_check_summary[check["status"]] = (
+                    cross_check_summary.get(check["status"], 0) + 1
+                )
+            flagged = sorted(s for s, c in checks.items() if c["status"] != "ok")
+            print(
+                f"  Cross-check: {cross_check_summary}"
+                + (f" flagged: {flagged}" if flagged else "")
+            )
+        print()
+
     # ========================================================================
     # Generate Reports
     # ========================================================================
@@ -1005,7 +1054,10 @@ def main():
             "vcp_candidates": len(results),
         },
         "api_stats": api_stats,
+        "data_source": args.data_source,
     }
+    if cross_check_summary is not None:
+        metadata["cross_check"] = cross_check_summary
 
     top_results = results[: args.top]
     coverage = build_evaluation_coverage(outcomes)
