@@ -154,22 +154,33 @@
     <p class="small muted">
       {% if why.plan_gated %}{{ why.plan_gated }} blocked by your FMP plan. {% endif %}
       {% if why.provider_error %}{{ why.provider_error }} failed to load. {% endif %}
-      The screener needs a paid FMP plan (batch quotes and the full S&amp;P 500). To stop running it, set <code>RUN_VCP=false</code> in <code>.env</code>.
+      {% set errs = ((vcp.data.metadata or {}).api_stats or {}).source_errors or {} %}
+      {% for name, err in errs.items() %}{{ name }}: {{ err }}. {% endfor %}
+      On a free FMP key, set <code>VCP_DATA_SOURCE=auto</code> in <code>.env</code> (Alpaca SIP first, then yfinance). To stop running it, set <code>RUN_VCP=false</code>.
     </p>
     {{ report_link(vcp) }}
   {% elif vcp_rows %}
+  {% set stats = (vcp.data.metadata or {}).api_stats or {} %}
+  {% if stats.data_sources %}
+  <p class="small muted">Prices from
+    {% for name, n in stats.data_sources | dictsort %}{{ {'alpaca': 'Alpaca SIP', 'yfinance': 'Yahoo (yfinance)', 'fmp': 'FMP'}.get(name, name) }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}.
+    {% for name, err in (stats.source_errors or {}).items() %}<span class="warn">{{ name }} failed: {{ err }}.</span> {% endfor %}
+  </p>
+  {% endif %}
   <div class="scroll"><table>
-    <thead><tr><th>Symbol</th><th>Rating</th><th class="num">Score</th><th class="num">Price</th><th class="num">From pivot</th><th>State</th></tr></thead>
+    <thead><tr><th>Symbol</th><th>Rating</th><th class="num">Score</th><th class="num">Price</th><th class="num">From pivot</th><th>State</th><th>Data</th></tr></thead>
     <tbody>
     {% for r in vcp_rows %}
       <tr><td>{{ r.symbol }}</td><td>{{ r.rating or '—' }}</td><td class="num">{{ r.composite_score | round(1) if r.composite_score is number else '—' }}</td>
       <td class="num">{{ r.price | money }}</td><td class="num">{{ r.distance_from_pivot_pct | pct }}</td>
-      <td>{{ r.execution_state or '' }}</td></tr>
+      <td>{{ r.execution_state or '' }}</td>
+      {% set cc = r.cross_check or {} %}
+      <td>{% if cc.status in ('mismatch', 'volume_mismatch', 'stale') %}<span class="warn" title="{{ cc.other_source }} disagrees on {{ cc.date }}: price {{ cc.price_diff_pct }}%, volume {{ cc.volume_diff_pct }}%">check chart ({{ cc.status | replace('_', ' ') }})</span>{% elif cc.status == 'ok' %}<span class="muted" title="matches {{ cc.other_source }} on {{ cc.date }}">✓ {{ r.data_source or '' }}</span>{% else %}<span class="muted">{{ r.data_source or '' }}</span>{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
   {{ report_link(vcp) }}
   {% elif vcp %}<p class="muted">The last screen found no candidates.</p>
-  {% else %}{{ empty('Run vcp-screener (needs your FMP key).') }}{% endif %}
+  {% else %}{{ empty('Run vcp-screener (set RUN_VCP=true and VCP_DATA_SOURCE=auto).') }}{% endif %}
 </section>
 {% endblock %}

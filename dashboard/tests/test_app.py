@@ -168,3 +168,51 @@ def test_vcp_tile_says_when_screen_could_not_run(reports_dir, state_dir):
     assert "couldn't run" in tile
     assert "0 of 503" in tile
     assert "found no candidates" not in tile
+
+
+def test_vcp_tile_shows_data_source_and_cross_check_flag(reports_dir, state_dir):
+    (reports_dir / "vcp_screener_2026-11-20_162500.json").write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "api_stats": {
+                        "data_sources": {"alpaca": 500, "yfinance": 3},
+                        "source_errors": {},
+                    }
+                },
+                "results": [
+                    {
+                        "symbol": "OKAY",
+                        "composite_score": 80,
+                        "data_source": "alpaca",
+                        "cross_check": {"status": "ok", "other_source": "yfinance"},
+                    },
+                    {
+                        "symbol": "ODDD",
+                        "composite_score": 70,
+                        "data_source": "alpaca",
+                        "cross_check": {
+                            "status": "mismatch",
+                            "other_source": "yfinance",
+                            "price_diff_pct": 3.2,
+                        },
+                    },
+                ],
+                "evaluation_coverage": {
+                    "universe_size": 503,
+                    "evaluated": 503,
+                    "not_evaluated": 0,
+                    "not_evaluated_reasons": {},
+                    "verdict": "complete",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = create_app({"REPORTS_DIR": reports_dir, "STATE_DIR": state_dir, "ALPACA": None})
+    tile = app.test_client().get("/").get_data(as_text=True).split("Latest VCP screen", 1)[1]
+    assert "Alpaca SIP (500)" in tile and "Yahoo (yfinance) (3)" in tile
+    odd_row = tile.split("ODDD", 1)[1].split("</tr>", 1)[0]
+    assert "check chart (mismatch)" in odd_row
+    okay_row = tile.split("OKAY", 1)[1].split("</tr>", 1)[0]
+    assert "check chart" not in okay_row

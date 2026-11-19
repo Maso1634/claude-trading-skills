@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import sys
 from datetime import date
 
 from fmp_client import FMPClient
+
+_STABLE_QUOTE = "https://financialmodelingprep.com/stable/quote"
 
 # The longest RS return needs 252 sessions plus its initial close; the
 # 200-session moving-average comparison also needs 22 earlier sessions.
@@ -15,16 +18,81 @@ MIN_SCREEN_HISTORY = 253
 class CoverageFMPClient(FMPClient):
     """Retain only reason codes, never provider bodies, keys or request URLs."""
 
-    def __init__(self, *args, **kwargs):
+    _V3_QUOTE = "https://financialmodelingprep.com/api/v3/quote"
+
+    def __init__(self, *args, max_api_calls=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.coverage_failures = {}
         self._coverage_attempts = []
+        # FMP's free plan answers 402 to multi-symbol quote requests, so the
+        # client drops to one symbol per request once a batch is plan-gated.
+        self.single_symbol_quotes = False
+        # Hard stop on FMP calls for this run (None = no limit), so a free key's
+        # daily allowance runs out cleanly instead of in the middle of a 429.
+        self.max_api_calls = max_api_calls
+
+    def _rate_limited_get(self, url, params=None, quiet=False, **kwargs):
+        if self.max_api_calls is not None and self.api_calls_made >= self.max_api_calls:
+            self._last_error = "call budget reached"
+            return None
+        return super()._rate_limited_get(url, params, quiet=quiet, **kwargs)
+
+    def get_batch_quotes(self, symbols):
+        """Batch quotes, falling back to one symbol per request on a 402.
+
+        The fallback starts at the first plan-gated batch and lasts for the
+        rest of the run. When single quotes are plan-gated too, the plan
+        doesn't serve quotes at all, so the remaining symbols are recorded as
+        plan_gated without spending more calls.
+        """
+        results = {}
+        batch_size = 5
+        i = 0
+        while i < len(symbols):
+            if self.single_symbol_quotes:
+                sym = symbols[i]
+                quotes = self.get_quote(sym)
+                if quotes:
+                    results.update({q["symbol"]: q for q in quotes})
+                elif self.coverage_failures.get(("quote", sym)) == "plan_gated":
+                    for rest in symbols[i + 1 :]:
+                        self.coverage_failures[("quote", rest)] = "plan_gated"
+                    break
+                i += 1
+                continue
+
+            batch = symbols[i : i + batch_size]
+            quotes = self.get_quote(",".join(batch))
+            if quotes:
+                results.update({q["symbol"]: q for q in quotes})
+                i += batch_size
+                continue
+            if len(batch) > 1 and self.coverage_failures.get(("quote", batch[0])) == "plan_gated":
+                print(
+                    "NOTE: FMP plan does not allow batch quotes; "
+                    "switching to one symbol per request",
+                    file=sys.stderr,
+                )
+                self.single_symbol_quotes = True
+                # Give /stable a clean slate; the legacy v3 address only ever
+                # answers 403 for keys made after 2025-08-31, so stop paying
+                # a call per symbol to hear that again.
+                self._endpoint_failures.clear()
+                self._disabled_endpoints.discard(_STABLE_QUOTE)
+                if self._last_error and self._last_error.startswith("HTTP 403"):
+                    self._disabled_endpoints.add(self._V3_QUOTE)
+                continue  # retry this batch one symbol at a time
+            i += batch_size
+        return results
 
     def _warn_fallback(self, base_url, is_last, reason):
         if reason:
             if "HTTP 402" in reason:
                 code = "plan_gated"
-            elif any(text in reason for text in ("HTTP ", "request exception", "rate limit")):
+            elif any(
+                text in reason
+                for text in ("HTTP ", "request exception", "rate limit", "call budget")
+            ):
                 code = "provider_error"
             elif "no rows" in reason:
                 code = "missing_data"

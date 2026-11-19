@@ -129,8 +129,21 @@ Then schedule it for 4:20 PM ET on weekdays with `crontab -e`, adding this line:
 
 With only breadth and uptrend as inputs, exposure-coach reports **low** confidence.
 That's expected; more inputs (FTD, market top, macro regime) can be added later.
-To also run the VCP screen nightly, set `RUN_VCP=true` and `FMP_API_KEY` in `.env`.
-That uses FMP API calls, so watch the free tier's 250 a day.
+To also run the VCP screen nightly, set `RUN_VCP=true` and `VCP_DATA_SOURCE=auto` in `.env`.
+`auto` screens the whole S&P 500 from Alpaca SIP daily bars (the same Alpaca keys the
+dashboard uses; the free plan is enough because the job runs after the close), falls back
+to yfinance and then FMP for anything Alpaca misses, and cross-checks the shown results
+against a second source. The Overview's VCP table says where the prices came from and
+marks a stock "check chart" when the sources disagree.
+
+`VCP_DATA_SOURCE=fmp` keeps the old FMP-only screen. A free FMP key allows 250 calls a day
+and no batch quotes, so with `fmp` also set `VCP_UNIVERSE` to a watchlist of about 100
+symbols. `VCP_MAX_API_CALLS` (default 240) stops the run before the daily limit.
+
+To get a push on your phone when a step fails, a backup source was used, stocks went
+unevaluated, or the cross-check flags a stock, set `NTFY_URL` (and `NTFY_TOKEN` if your
+topic needs one). A clean run sends nothing. Test it with
+`docker compose run --rm --entrypoint python refresh /app/notify_refresh.py --failed test`.
 
 ### 7. Give it a name in Caddy
 

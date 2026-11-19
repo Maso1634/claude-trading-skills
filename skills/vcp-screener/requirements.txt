@@ -1,3 +1,4 @@
 # Runtime dependencies for standalone .skill installs (issue #330).
 # Verified by scripts/check_skill_deps.py.
 requests>=2.31.0
+yfinance>=0.2.50  # optional: backup and cross-check bar source; Alpaca SIP and FMP work without it

@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY refresh_market.sh ./refresh_market.sh
+COPY refresh_market.sh notify_refresh.py ./
 
 # Run as an unprivileged user. 1000 matches the first user on a fresh Debian CT,
 # so files the refresh job writes stay owned by you.
