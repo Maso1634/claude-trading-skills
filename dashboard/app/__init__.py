@@ -59,6 +59,13 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     def now_local() -> datetime:
         return datetime.now(tz)
 
+    @app.template_filter("local")
+    def local(value: Any) -> Any:
+        """Aware datetime -> display time zone. Naive values pass through unchanged."""
+        if isinstance(value, datetime) and value.tzinfo is not None:
+            return value.astimezone(tz)
+        return value
+
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
         client = app.config["ALPACA"]

@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime, timezone
 
 from app import readers
@@ -96,3 +97,20 @@ def test_unstamped_files_with_same_prefix_are_ignored(reports_dir):
     names = [p.name for p in readers.list_reports(reports_dir, "breadth")]
     assert names == ["market_breadth_2026-11-18_211000.json"]
     assert readers.latest(reports_dir, "breadth")["data"]["composite"]["zone"] == "Neutral"
+
+
+def test_latest_stamp_is_file_write_time_in_utc(reports_dir):
+    # The filename says 04:03 UTC on the 19th, but some skills stamp local time and
+    # others UTC, so the card uses the moment the file was written instead.
+    path = reports_dir / "exposure_posture_2026-11-18_211500.json"
+    written = datetime(2026, 11, 19, 4, 3, tzinfo=timezone.utc)
+    os.utime(path, (written.timestamp(), written.timestamp()))
+    card = readers.latest(reports_dir, "exposure")
+    assert card["stamp"] == written
+    assert card["stamp"].tzinfo is not None
+
+
+def test_age_hours_with_aware_stamp():
+    now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+    stamp = datetime(2026, 11, 19, 6, 0, tzinfo=timezone.utc)
+    assert readers.age_hours(stamp, now) == 6

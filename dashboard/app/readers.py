@@ -43,10 +43,26 @@ def parse_stamp(name: str) -> datetime | None:
         return None
 
 
+def file_time(path: Path) -> datetime | None:
+    """When the file was written, as an aware UTC datetime.
+
+    Shown on cards instead of the filename stamp: some skills stamp filenames with
+    the local clock and others with UTC, so the filename can be hours off.
+    """
+    try:
+        return datetime.fromtimestamp(Path(path).stat().st_mtime, timezone.utc)
+    except OSError:
+        return None
+
+
 def age_hours(stamp: datetime, now: datetime | None = None) -> float:
-    """Hours since a naive (UTC-ish) filename stamp. Used only for a 'stale' badge."""
+    """Hours since a stamp (aware, or naive meaning UTC). Used only for a 'stale' badge."""
     now = now or datetime.now(timezone.utc)
-    return (now.replace(tzinfo=None) - stamp).total_seconds() / 3600
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return (now - stamp).total_seconds() / 3600
 
 
 def _sort_key(path: Path) -> tuple[datetime, str]:
@@ -84,7 +100,7 @@ def latest(reports_dir: Path, key: str) -> dict[str, Any] | None:
             "path": path,
             "name": path.relative_to(reports_dir).as_posix(),
             "md_name": md.relative_to(reports_dir).as_posix() if md.exists() else None,
-            "stamp": parse_stamp(path.name),
+            "stamp": file_time(path),
             "data": data,
         }
     return None
@@ -143,7 +159,7 @@ def all_reports(reports_dir: Path, per_type: int = 30) -> dict[str, list[dict[st
                 {
                     "name": path.relative_to(reports_dir).as_posix(),
                     "md_name": md.relative_to(reports_dir).as_posix() if md.exists() else None,
-                    "stamp": parse_stamp(path.name),
+                    "stamp": file_time(path),
                 }
             )
         if rows:
