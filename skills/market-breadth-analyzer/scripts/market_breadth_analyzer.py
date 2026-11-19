@@ -28,6 +28,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -49,6 +50,18 @@ from history_tracker import append_history, get_trend_summary
 from provenance_contract import build_provenance, safe_source_url
 from report_generator import generate_json_report, generate_markdown_report
 from scorer import calculate_composite_score
+
+MARKET_TZ = ZoneInfo("America/New_York")
+
+
+def report_stamp(now: datetime | None = None) -> str:
+    """Filename stamp in US Eastern (market) time, whatever clock runs this script.
+
+    Keeps a run on its trading day: an evening run in a UTC container would
+    otherwise be stamped with tomorrow's date.
+    """
+    now = now or datetime.now(timezone.utc)
+    return now.astimezone(MARKET_TZ).strftime("%Y-%m-%d_%H%M%S")
 
 
 def parse_arguments():
@@ -252,7 +265,7 @@ def main():
         "key_levels": key_levels,
     }
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = report_stamp()
     json_file = os.path.join(args.output_dir, f"market_breadth_{timestamp}.json")
     md_file = os.path.join(args.output_dir, f"market_breadth_{timestamp}.md")
 
