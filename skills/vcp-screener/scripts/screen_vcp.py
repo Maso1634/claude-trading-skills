@@ -86,6 +86,13 @@ def parse_arguments():
         "--universe", nargs="+", help="Custom symbols to screen (overrides S&P 500)"
     )
     parser.add_argument(
+        "--max-api-calls",
+        type=int,
+        default=None,
+        help="Stop making FMP calls after this many in one run (default: no limit). "
+        "Useful on the free plan, which allows 250 calls a day.",
+    )
+    parser.add_argument(
         "--full-sp500",
         action="store_true",
         help="Screen all S&P 500 stocks (requires paid API tier, ~350 calls)",
@@ -228,6 +235,8 @@ def parse_arguments():
 
     args = parser.parse_args()
 
+    if args.max_api_calls is not None and args.max_api_calls < 1:
+        parser.error("--max-api-calls must be positive")
     if args.max_candidates < 1:
         parser.error("--max-candidates must be positive")
 
@@ -701,7 +710,7 @@ def main():
 
     # Initialize FMP client
     try:
-        client = FMPClient(api_key=args.api_key)
+        client = FMPClient(api_key=args.api_key, max_api_calls=args.max_api_calls)
         print("FMP API client initialized")
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -1043,6 +1052,12 @@ def main():
     print()
     print("API Usage:")
     print(f"  API calls made: {api_stats['api_calls_made']}")
+    if getattr(client, "single_symbol_quotes", False):
+        print("  Quotes fetched one symbol per request (FMP plan has no batch quotes)")
+    if args.max_api_calls is not None and api_stats["api_calls_made"] >= args.max_api_calls:
+        print(
+            f"  Stopped at the --max-api-calls budget ({args.max_api_calls}); results are partial"
+        )
     print(f"  Cache entries:  {api_stats['cache_entries']}")
     print()
 

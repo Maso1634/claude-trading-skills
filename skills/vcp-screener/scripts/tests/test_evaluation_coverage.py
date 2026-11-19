@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import screen_vcp
-from coverage_client import CoverageFMPClient
+from coverage_client import CoverageFMPClient, failure_reason
 
 
 def quote(price=50):
@@ -175,7 +175,10 @@ def test_real_client_failure_survives_legacy_fallback(monkeypatch, tmp_path, sta
     report = json.loads(next(tmp_path.glob("*.json")).read_text())
     assert report["evaluation_coverage"]["verdict"] == "not_evaluable"
     assert report["evaluation_coverage"]["not_evaluated_reasons"] == {reason: 2}
-    assert len(calls) == 2  # no benchmark fetch when no symbols passed the quote stage
+    # 402: batch (stable + v3), then one single-symbol probe on stable that is
+    # also plan-gated, so the rest are skipped. 500: no single-symbol retry.
+    # Never a benchmark fetch when no symbols passed the quote stage.
+    assert len(calls) == (3 if status == 402 else 2)
     assert "fictional-key" not in json.dumps(report)
 
 
@@ -207,3 +210,48 @@ def test_invalid_history_cannot_be_counted_as_evaluated(monkeypatch, tmp_path, f
         {"AAA": bars, "SPY": history()},
     )
     assert report["evaluation_coverage"]["verdict"] == "not_evaluable"
+
+
+def _batch_gated_client(monkeypatch, *, max_api_calls=None):
+    """Free-plan fixture: multi-symbol quotes 402, single-symbol quotes 200, v3 403."""
+    client = CoverageFMPClient(
+        api_key="fictional-key",  # pragma: allowlist secret
+        max_api_calls=max_api_calls,
+    )
+    client.RATE_LIMIT_DELAY = 0
+    calls = []
+
+    def response(url, params=None, **kwargs):
+        calls.append((url, dict(params or {})))
+        sym = (params or {}).get("symbol", "")
+        if "/stable/quote" not in url:
+            return SimpleNamespace(status_code=403, text="Legacy Endpoint", json=lambda: None)
+        if "," in sym:
+            return SimpleNamespace(status_code=402, text="Restricted", json=lambda: None)
+        return SimpleNamespace(
+            status_code=200, text="ok", json=lambda: [{"symbol": sym, **quote()}]
+        )
+
+    monkeypatch.setattr(client.session, "get", response)
+    return client, calls
+
+
+def test_plan_gated_batch_falls_back_to_single_symbol_quotes(monkeypatch):
+    client, calls = _batch_gated_client(monkeypatch)
+    symbols = [f"S{i}" for i in range(12)]
+    quotes = client.get_batch_quotes(symbols)
+    assert set(quotes) == set(symbols)
+    assert client.single_symbol_quotes is True
+    assert client.coverage_failures == {}
+    # One failed batch on stable + v3, then one call per symbol; v3 is not retried.
+    assert len(calls) == 2 + len(symbols)
+    assert sum("/api/v3/" in url for url, _ in calls) == 1
+
+
+def test_call_budget_stops_requests_and_counts_as_provider_error(monkeypatch):
+    client, calls = _batch_gated_client(monkeypatch, max_api_calls=5)
+    symbols = [f"S{i}" for i in range(10)]
+    quotes = client.get_batch_quotes(symbols)
+    assert len(calls) == 5
+    assert set(quotes) == {"S0", "S1", "S2"}
+    assert {failure_reason(client, "quote", s) for s in symbols[3:]} == {"provider_error"}

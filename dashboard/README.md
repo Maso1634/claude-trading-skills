@@ -130,7 +130,11 @@ Then schedule it for 4:20 PM ET on weekdays with `crontab -e`, adding this line:
 With only breadth and uptrend as inputs, exposure-coach reports **low** confidence.
 That's expected; more inputs (FTD, market top, macro regime) can be added later.
 To also run the VCP screen nightly, set `RUN_VCP=true` and `FMP_API_KEY` in `.env`.
-That uses FMP API calls, so watch the free tier's 250 a day.
+That uses FMP API calls. A free FMP key allows 250 calls a day and no batch quotes, so the
+screener asks for one stock per request and the full S&P 500 won't fit. On a free key, also
+set `VCP_UNIVERSE` to a space-separated watchlist of about 100 symbols. Each symbol costs one
+quote call, plus one history call if it passes the pre-filter. `VCP_MAX_API_CALLS` (default
+240) stops the run before it hits the daily limit.
 
 ### 7. Give it a name in Caddy
 

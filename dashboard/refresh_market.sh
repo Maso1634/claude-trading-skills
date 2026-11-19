@@ -53,7 +53,15 @@ fi
 
 if [ "${RUN_VCP:-false}" = "true" ] && [ -n "${FMP_API_KEY:-}" ]; then
   echo "== VCP screener"
-  python skills/vcp-screener/scripts/screen_vcp.py --output-dir reports || status=1
+  # Free FMP keys get 250 calls a day and no batch quotes, so each stock costs
+  # one quote call plus one history call if it passes the pre-filter. Screen a
+  # watchlist (VCP_UNIVERSE, space-separated) of about 100 symbols on a free
+  # key; leave it empty to screen the whole S&P 500 on a paid key.
+  set -- --output-dir reports --max-api-calls "${VCP_MAX_API_CALLS:-240}"
+  [ -n "${VCP_MAX_CANDIDATES:-}" ] && set -- "$@" --max-candidates "$VCP_MAX_CANDIDATES"
+  # shellcheck disable=SC2086  # word-split the watchlist into symbols on purpose
+  [ -n "${VCP_UNIVERSE:-}" ] && set -- "$@" --universe $VCP_UNIVERSE
+  python skills/vcp-screener/scripts/screen_vcp.py "$@" || status=1
 fi
 
 run_circuit || status=1
