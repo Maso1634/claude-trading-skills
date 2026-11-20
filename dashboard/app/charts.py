@@ -82,3 +82,99 @@ def line_chart(
         )
     parts.append("</svg>")
     return Markup("".join(parts))
+
+
+def payoff_chart(
+    curve: list[tuple[float, float, float]],
+    price: float,
+    breakevens: list[float] | None = None,
+    width: int = 640,
+    height: int = 260,
+    label: str = "Profit or loss by stock price",
+) -> Markup:
+    """Option payoff chart: P&L at expiry (solid) and today (dashed) across stock prices.
+
+    `curve` rows are (stock price, P&L at expiry, P&L today), in dollars.
+    """
+    if len(curve) < 2:
+        return Markup('<p class="muted">Not enough points to draw.</p>')
+    pad_l, pad_r, pad_t, pad_b = 56, 12, 26, 24
+    inner_w = width - pad_l - pad_r
+    inner_h = height - pad_t - pad_b
+    xs = [c[0] for c in curve]
+    ys = [v for c in curve for v in (c[1], c[2])] + [0.0]
+    x_lo, x_hi = xs[0], xs[-1]
+    y_lo, y_hi = min(ys), max(ys)
+    margin = (y_hi - y_lo) * 0.08 or 1
+    y_lo, y_hi = y_lo - margin, y_hi + margin
+
+    def x(v: float) -> float:
+        return pad_l + inner_w * (v - x_lo) / ((x_hi - x_lo) or 1)
+
+    def y(v: float) -> float:
+        return pad_t + inner_h * (1 - (v - y_lo) / ((y_hi - y_lo) or 1))
+
+    def money(v: float) -> str:
+        sign = "-" if v < 0 else ""
+        return f"{sign}${abs(v):,.0f}"
+
+    parts = [
+        f'<svg class="chart payoff" viewBox="0 0 {width} {height}" role="img"'
+        f' aria-label="{escape(label)}">'
+    ]
+    for frac in (0, 0.5, 1):
+        gv = y_lo + (y_hi - y_lo) * frac
+        gy = y(gv)
+        parts.append(
+            f'<line class="grid" x1="{pad_l}" x2="{width - pad_r}" y1="{gy:.1f}" y2="{gy:.1f}"/>'
+            f'<text class="axis" x="{pad_l - 6}" y="{gy + 4:.1f}" text-anchor="end">'
+            f"{money(gv)}</text>"
+        )
+    zy = y(0)
+    parts.append(
+        f'<line class="zero" x1="{pad_l}" x2="{width - pad_r}" y1="{zy:.1f}" y2="{zy:.1f}"/>'
+    )
+    # Shade where the expiry P&L is a profit (green) or a loss (red).
+    for cls, keep in (("gain", lambda v: max(v, 0.0)), ("loss", lambda v: min(v, 0.0))):
+        pts = [f"{x(xs[0]):.1f},{zy:.1f}"]
+        pts += [f"{x(c[0]):.1f},{y(keep(c[1])):.1f}" for c in curve]
+        pts.append(f"{x(xs[-1]):.1f},{zy:.1f}")
+        parts.append(f'<polygon class="{cls}" points="{" ".join(pts)}"/>')
+    today = " ".join(f"{x(c[0]):.1f},{y(c[2]):.1f}" for c in curve)
+    expiry = " ".join(f"{x(c[0]):.1f},{y(c[1]):.1f}" for c in curve)
+    parts.append(f'<polyline class="line today" points="{today}"/>')
+    parts.append(f'<polyline class="line" points="{expiry}"/>')
+    if x_lo <= price <= x_hi:
+        px = x(price)
+        parts.append(
+            f'<line class="now" x1="{px:.1f}" x2="{px:.1f}" y1="{pad_t}" y2="{pad_t + inner_h}"/>'
+            f'<text class="axis" x="{px:.1f}" y="{height - 6}" text-anchor="middle">now {price:,.2f}</text>'
+        )
+    for be in breakevens or []:
+        if x_lo <= be <= x_hi:
+            parts.append(
+                f'<circle class="be" cx="{x(be):.1f}" cy="{zy:.1f}" r="4">'
+                f"<title>Breakeven {be:,.2f}</title></circle>"
+            )
+    n = len(curve)
+    col = inner_w / (n - 1)
+    for p, ve, vt in curve:
+        cx = x(p)
+        text = f"{p:,.2f} · expiry {money(ve)} · today {money(vt)}"
+        half = len(text) * 3.7
+        tx = min(max(cx, pad_l + half), width - pad_r - half)
+        parts.append(
+            f'<g class="pt">'
+            f'<rect class="hit" x="{max(pad_l, cx - col / 2):.1f}" y="{pad_t}"'
+            f' width="{col:.1f}" height="{inner_h}"/>'
+            f'<line class="guide" x1="{cx:.1f}" x2="{cx:.1f}" y1="{pad_t}" y2="{pad_t + inner_h}"/>'
+            f'<circle class="dot" cx="{cx:.1f}" cy="{y(ve):.1f}" r="3"/>'
+            f'<text class="tip" x="{tx:.1f}" y="{pad_t - 9}" text-anchor="middle">'
+            f"{escape(text)}</text></g>"
+        )
+    parts.append(f'<text class="axis" x="{pad_l}" y="{height - 6}">{x_lo:,.2f}</text>')
+    parts.append(
+        f'<text class="axis" x="{width - pad_r}" y="{height - 6}" text-anchor="end">{x_hi:,.2f}</text>'
+    )
+    parts.append("</svg>")
+    return Markup("".join(parts))

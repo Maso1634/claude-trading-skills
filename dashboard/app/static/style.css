@@ -250,3 +250,21 @@ legend { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 6px;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---- options payoff chart ---- */
+.chart.payoff .zero { stroke: var(--border-strong); stroke-width: 1.5; }
+.chart.payoff .gain { fill: var(--good-bg); stroke: none; }
+.chart.payoff .loss { fill: var(--bad-bg); stroke: none; }
+.chart.payoff .line.today { stroke: var(--muted); stroke-dasharray: 5 4; stroke-width: 1.5; }
+.chart.payoff .now { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart.payoff .be { fill: var(--panel); stroke: var(--warn); stroke-width: 2; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s3); font-size: 12px; color: var(--muted); }
+.legend .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--line); vertical-align: middle; margin-right: 4px; }
+.legend .sw.today { border-top: 2px dashed var(--muted); }
+.legend .sw.now { border-top: 2px dotted var(--warn); }
+.explain { font-size: 12px; color: var(--muted); margin: 4px 0 0; line-height: 1.4; }
+.warnlist { margin: 0 0 var(--s3); padding-left: 1.2em; }
+.warnlist li { color: var(--warn); margin-bottom: 4px; }
+.form [hidden] { display: none; }
+.chart.payoff .dot { visibility: hidden; }
+.chart.payoff .pt:hover .dot { visibility: visible; }

@@ -14,9 +14,11 @@ What it shows:
 | Latest VCP screen | `reports/vcp_screener_*.json` |
 | Trade journal (the only page that saves) | `trade-journal/journal.db` + `trade-journal/screenshots/`, filled by hand or from a Robinhood CSV |
 | Reports page | Every report above, rendered from its `.md` or `.json` |
+| Options calculator (read-only) | Your inputs, plus the stock's last IEX trade and daily bars from Alpaca market data when you type a ticker |
 
 What it can't do: place, change or cancel orders. The Alpaca client in
-`app/alpaca.py` only sends `GET /v2/account` and `GET /v2/positions`. The `reports/`
+`app/alpaca.py` only sends GET requests: `/v2/account` and `/v2/positions`, plus a
+stock's latest trade and daily bars from the market data API for the Options page. The `reports/`
 and `state/` folders are mounted read-only into the web container, except `state/theses/`,
 which the New thesis page writes to. `trade-journal/` is the only other folder it can write to.
 
@@ -225,6 +227,25 @@ isn't owned by user 1000. Run the `mkdir` and `chown` lines above and restart.
 backup of the CT covers. For an extra copy, use **Export CSV** now and then.
 
 ---
+
+## Options calculator
+
+Open **Options** in the top menu. Pick a strategy (long call, long put, covered call,
+cash-secured put, or a bull call / bear put spread), type the strike, expiration and
+premium, and the page shows the payoff at expiration (solid line) and today (dashed),
+breakeven, max profit and loss, cash needed, the model's chance of profit, and the
+position Greeks, each with a one-line explanation.
+
+- Type a ticker and it fills in the stock price (last IEX trade from Alpaca) and a
+  starting IV from 30-day historical volatility. For accurate numbers, replace IV and
+  the premium with what Robinhood shows on the contract's page.
+- Leave a premium blank and it's estimated with Black-Scholes (same formulas as
+  `skills/options-strategy-advisor`, standard library only).
+- Account size defaults to `CB_ACCOUNT_SIZE` from `.env`; max loss above 2% of it is flagged.
+- Spreads are marked "needs Level 3" (Robinhood options level).
+- A journal trade on a single option contract gets an **Open in Options calculator** button.
+
+It saves nothing and needs no new keys or folders.
 
 ## Circuit breaker
 

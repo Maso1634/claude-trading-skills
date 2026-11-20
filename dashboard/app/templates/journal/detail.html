@@ -5,7 +5,7 @@
 <section class="panel">
   <div class="toolbar">
     <h2>{{ t.symbol }} · trade #{{ t.id }} <span class="status {{ t.status }}">{{ t.status }}</span> <span class="chip">{{ t.direction }}</span></h2>
-    <a class="btn" href="{{ url_for('journal.index') }}">All trades</a>
+    <span>{% if calc_link %}<a class="btn" href="{{ calc_link }}">Open in Options calculator</a> {% endif %}<a class="btn" href="{{ url_for('journal.index') }}">All trades</a></span>
   </div>
   <div class="stats">
     <div><span class="label">{{ 'Net P&L' if t.status == 'closed' else 'Realized so far' }}</span>
