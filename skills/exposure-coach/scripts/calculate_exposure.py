@@ -352,6 +352,17 @@ def extract_sector_score(data: Optional[dict]) -> Optional[int]:
             return 35
         else:
             return 50
+    # sector-analyst (analyze_sector_rotation.py --json) puts its 0-100
+    # cyclical-vs-defensive risk-on score under groups.score (high = cyclicals
+    # leading = risk-on). A stale source CSV counts as missing.
+    groups = data.get("groups")
+    if isinstance(groups, dict):
+        freshness = (data.get("meta") or {}).get("freshness")
+        if isinstance(freshness, dict) and freshness.get("is_fresh") is False:
+            return None
+        score = groups.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(score):
+            return max(0, min(100, int(round(score))))
     return None
 
 

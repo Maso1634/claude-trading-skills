@@ -20,6 +20,12 @@ REPORT_TYPES: dict[str, tuple[str, str]] = {
     "exposure": ("Exposure posture", "exposure_posture_"),
     "breadth": ("Market breadth", "market_breadth_"),
     "uptrend": ("Uptrend ratio", "uptrend_analysis_"),
+    "regime": ("Macro regime", "macro_regime_"),
+    "top_risk": ("Market top risk", "market_top_"),
+    "ftd": ("Follow-Through Day", "ftd_detector_"),
+    "sector": ("Sector rotation", "sector_rotation_"),
+    # "theme_detector_2" (the date) skips theme_detector_history.json.
+    "theme": ("Themes", "theme_detector_2"),
     "vcp": ("VCP screener", "vcp_screener_"),
     "breakout": ("Breakout plan", "breakout_trade_plan_"),
     "circuit": ("Circuit breaker", "circuit_breaker_decision_"),

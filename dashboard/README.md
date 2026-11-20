@@ -113,8 +113,8 @@ Open `http://192.168.40.26:8080` from the Admin Workstation or over WireGuard.
 
 ### 6. Fill it with market data, then refresh every weekday
 
-Run the refresh once by hand. It takes about a minute and writes breadth, uptrend and
-exposure reports:
+Run the refresh once by hand. It takes a few minutes and writes breadth, uptrend, macro
+regime, market top, Follow-Through Day, sector rotation, theme and exposure reports:
 
 ```bash
 cd /opt/claude-trading-skills/dashboard
@@ -127,8 +127,12 @@ Then schedule it for 4:20 PM ET on weekdays with `crontab -e`, adding this line:
 20 16 * * 1-5 cd /opt/claude-trading-skills/dashboard && docker compose run --rm refresh >> /var/log/trading-refresh.log 2>&1
 ```
 
-With only breadth and uptrend as inputs, exposure-coach reports **low** confidence.
-That's expected; more inputs (FTD, market top, macro regime) can be added later.
+Exposure-coach gets 7 of its 8 inputs. Breadth, uptrend, sector and theme need no key;
+macro regime, market top and FTD use `FMP_API_KEY` (a free key is enough: the S&P 500 and
+Nasdaq indexes, VIX and Treasury rates are on the free plan) with yfinance where FMP says
+no. Institutional flow is left out: it needs paid FMP 13F data that is a quarter old. A
+step that fails, or writes no new report, is left out of that day's posture rather than
+reusing an old report, and the summary lists it under Missing Inputs.
 To also run the VCP screen nightly, set `RUN_VCP=true` and `VCP_DATA_SOURCE=auto` in `.env`.
 `auto` screens the whole S&P 500 from Alpaca SIP daily bars (the same Alpaca keys the
 dashboard uses; the free plan is enough because the job runs after the close), falls back
