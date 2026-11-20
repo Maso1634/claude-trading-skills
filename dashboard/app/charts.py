@@ -1,4 +1,9 @@
-"""Small server-side SVG line charts, so the page needs no JavaScript or CDN."""
+"""Small server-side SVG line charts, so the page needs no JavaScript or CDN.
+
+Hovering a chart shows that day's value: each point is a <g class="pt"> with
+an invisible full-height hit strip, a guide line and a readout in the strip
+above the plot. style.css reveals them on :hover (a tap on phones).
+"""
 
 from __future__ import annotations
 
@@ -11,13 +16,13 @@ def line_chart(
     y_max: float = 100,
     suffix: str = "",
     width: int = 640,
-    height: int = 180,
+    height: int = 196,
     step: bool = False,
     label: str = "",
 ) -> Markup:
     if not points:
         return Markup('<p class="muted">No history yet.</p>')
-    pad_l, pad_r, pad_t, pad_b = 36, 12, 10, 24
+    pad_l, pad_r, pad_t, pad_b = 36, 12, 26, 24
     inner_w = width - pad_l - pad_r
     inner_h = height - pad_t - pad_b
     span = (y_max - y_min) or 1
@@ -48,10 +53,25 @@ def line_chart(
             f"{gv:g}{escape(suffix)}</text>"
         )
     parts.append(f'<polyline class="line" points="{" ".join(coords)}"/>')
+    n = len(points)
+    col = inner_w / (n - 1) if n > 1 else inner_w
     for i, (day, v) in enumerate(points):
+        cx, cy = x(i), y(v)
+        hit_l = max(pad_l, cx - col / 2) if n > 1 else pad_l
+        hit_r = min(width - pad_r, cx + col / 2) if n > 1 else width - pad_r
+        text = f"{day} · {v:g}{suffix}"
+        half = len(text) * 3.7  # ~7.4px per 12px monospace character
+        tx = min(max(cx, half + 2), width - half - 2)
         parts.append(
-            f'<circle class="dot" cx="{x(i):.1f}" cy="{y(v):.1f}" r="3">'
+            f'<g class="pt">'
+            f'<rect class="hit" x="{hit_l:.1f}" y="{pad_t}" width="{hit_r - hit_l:.1f}"'
+            f' height="{inner_h}"/>'
+            f'<line class="guide" x1="{cx:.1f}" x2="{cx:.1f}" y1="{pad_t}"'
+            f' y2="{pad_t + inner_h}"/>'
+            f'<circle class="dot" cx="{cx:.1f}" cy="{cy:.1f}" r="3">'
             f"<title>{escape(day)}: {v:g}{escape(suffix)}</title></circle>"
+            f'<text class="tip" x="{tx:.1f}" y="{pad_t - 9}" text-anchor="middle">'
+            f"{escape(text)}</text></g>"
         )
     first, last = points[0][0], points[-1][0]
     parts.append(f'<text class="axis" x="{pad_l}" y="{height - 6}">{escape(first)}</text>')
