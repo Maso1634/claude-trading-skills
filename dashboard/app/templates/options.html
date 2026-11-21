@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Options · Trading Desk{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="toolbar"><h2>Options calculator</h2></div>
+  <p class="small muted">Model a trade before you place it: the payoff at expiration, your breakeven, the most you can make or lose, and the Greeks. Nothing here places an order.</p>
+  <form method="get" action="{{ url_for('options.calculator') }}" class="form" id="opt-form">
+    <input type="hidden" name="go" value="1">
+    <label>Strategy <select name="strategy" id="opt-strategy">
+      {% for s in strategies.values() %}<option value="{{ s.key }}" data-two="{{ 1 if s.two_strikes else 0 }}" {{ 'selected' if form.strategy == s.key }}>{{ s.name }}{% if s.level > 2 %} (Level {{ s.level }}){% endif %}</option>{% endfor %}
+    </select></label>
+    <label>Ticker <input name="symbol" value="{{ form.symbol }}" placeholder="e.g. AAPL" autocapitalize="characters"></label>
+    <label>Stock price <input name="price" inputmode="decimal" value="{{ form.price or '' }}" placeholder="{{ 'looked up from ticker' if alpaca_ready else '' }}"></label>
+    <label>Expiration <input type="date" name="expiry" value="{{ form.expiry }}"></label>
+    <label><span id="strike-label">Strike</span> <input name="strike" inputmode="decimal" value="{{ form.strike or '' }}"></label>
+    <label>Premium per share <input name="premium" inputmode="decimal" value="{{ form.premium or '' }}" placeholder="blank = estimate"></label>
+    <label class="two-only">Second strike (sold) <input name="strike2" inputmode="decimal" value="{{ form.strike2 or '' }}"></label>
+    <label class="two-only">Second premium per share <input name="premium2" inputmode="decimal" value="{{ form.premium2 or '' }}" placeholder="blank = estimate"></label>
+    <label class="cc-only">Your cost per share <input name="cost_basis" inputmode="decimal" value="{{ form.cost_basis or '' }}" placeholder="blank = stock price"></label>
+    <label>IV % <input name="iv" inputmode="decimal" value="{{ form.iv or '' }}" placeholder="e.g. 35"></label>
+    <label>Contracts <input name="contracts" inputmode="numeric" value="{{ form.contracts }}"></label>
+    <label>Interest rate % <input name="rate" inputmode="decimal" value="{{ form.rate }}"></label>
+    <label>Account size $ <input name="account" inputmode="decimal" value="{{ form.account or '' }}"></label>
+    <div class="actions wide"><button class="btn primary" type="submit">Calculate</button>
+      <a class="btn" href="{{ url_for('options.calculator') }}">Clear</a></div>
+  </form>
+  {% if quote %}
+  <p class="small muted">{{ quote.symbol }}: last IEX trade {{ quote.price | money if quote.price else '—' }}{% if quote.price_time %} at {{ quote.price_time[:16] | replace('T', ' ') }} UTC{% endif %}
+    {% if hv %} · 30-day historical volatility {{ (hv * 100) | pct(0) }}{% endif %}.
+    {% if form.iv_from_hv %}IV was filled in from historical volatility. Replace it with the contract's IV from Robinhood for accurate numbers.{% endif %}</p>
+  {% elif quote_error %}<p class="small muted">Couldn't look up {{ form.symbol }}: {{ quote_error }}</p>{% endif %}
+  <details><summary>What do IV, HV and the interest rate mean?</summary>
+    <p class="explain"><b>IV.</b> {{ explain.iv }}</p>
+    <p class="explain"><b>HV.</b> {{ explain.hv }}</p>
+    <p class="explain"><b>Rate.</b> {{ explain.rate }}</p>
+    <p class="explain"><b>Premium.</b> The option's price per share, as Robinhood shows it. One contract costs 100 times that. Leave it blank and the calculator estimates it with Black-Scholes, the standard pricing formula.</p>
+  </details>
+</section>
+
+{% if a %}
+<section class="panel">
+  <h2>{{ a.strategy.name }} · {{ a.inputs.contracts }} contract{{ 's' if a.inputs.contracts != 1 }} · {{ a.inputs.dte }} day{{ 's' if a.inputs.dte != 1 }} to expiration
+    {% if a.strategy.level > 2 %}<span class="chip">needs Level {{ a.strategy.level }}</span>{% else %}<span class="chip">Level 2 OK</span>{% endif %}</h2>
+  <p class="small">{{ a.strategy.summary }} <span class="muted">{{ a.strategy.outlook }}</span></p>
+  {% if a.warnings %}<ul class="warnlist small">{% for w in a.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  <div class="stats">
+    <div><span class="label">{{ 'You pay' if a.net_premium >= 0 else 'You collect' }}</span>
+      <span class="value">{{ ((a.net_premium | abs) * a.scale) | money }}</span></div>
+    <div><span class="label">Max profit</span><span class="value good">{{ 'Unlimited' if a.max_profit is none else a.max_profit | money }}</span></div>
+    <div><span class="label">Max loss</span><span class="value bad">{{ 'Unlimited' if a.max_loss is none else a.max_loss | money }}</span></div>
+    <div><span class="label">Breakeven</span><span class="value">{% for b in a.breakevens %}{{ b | money }}{{ ' / ' if not loop.last }}{% else %}—{% endfor %}</span></div>
+    <div><span class="label">Chance of profit</span><span class="value">{{ (a.prob_profit * 100) | pct(0) if a.prob_profit is not none else '—' }}</span></div>
+    <div><span class="label">Cash needed</span><span class="value">{{ a.capital | money }}</span></div>
+    {% if a.risk_pct is not none %}<div><span class="label">Max loss / account</span><span class="value {{ 'bad' if a.risk_pct > 2 }}">{{ a.risk_pct | pct(1) }}</span></div>{% endif %}
+  </div>
+  <p class="explain">{{ a.capital_note }}</p>
+  <p class="explain"><b>Breakeven:</b> {{ explain.breakeven }} <b>Chance of profit:</b> {{ explain.prob }}</p>
+</section>
+
+<section class="panel">
+  <h2>Payoff</h2>
+  <div class="legend"><span><span class="sw"></span>At expiration</span><span><span class="sw today"></span>Today (model)</span><span><span class="sw now"></span>Current price</span><span>○ breakeven</span></div>
+  {{ chart }}
+  <p class="explain">The solid line is what the trade is worth on expiration day at each stock price. The dashed line is today's estimated value: the gap between them is the time value that decays as expiration gets closer.</p>
+</section>
+
+<section class="panel">
+  <h2>Greeks for the whole position</h2>
+  <div class="stats">
+    {% for k in ['delta', 'gamma', 'theta', 'vega'] %}
+    <div><span class="label">{{ k }}</span><span class="value {{ 'good' if a.position_greeks[k] > 0 and k == 'theta' else 'bad' if a.position_greeks[k] < 0 and k == 'theta' }}">{{ '%+.2f' | format(a.position_greeks[k]) }}</span></div>
+    {% endfor %}
+  </div>
+  {% for k in ['delta', 'gamma', 'theta', 'vega'] %}<p class="explain"><b>{{ k | capitalize }}.</b> {{ explain[k] }}</p>{% endfor %}
+  <h3>Legs</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Leg</th><th class="num">Premium</th><th class="num">Model price</th><th class="num">Delta</th><th class="num">Theta/day</th><th class="num">Vega</th></tr></thead>
+    <tbody>{% for leg in a.legs %}
+      <tr><td>{{ leg.label }}</td>
+        <td class="num">{{ '%.2f' | format(leg.premium) }}{% if leg.estimated %} <span class="chip">est.</span>{% endif %}</td>
+        <td class="num">{{ '%.2f' | format(leg.greeks.price) }}</td>
+        <td class="num">{{ '%.3f' | format(leg.greeks.delta) }}</td>
+        <td class="num">{{ '%.3f' | format(leg.greeks.theta) }}</td>
+        <td class="num">{{ '%.3f' | format(leg.greeks.vega) }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="explain">Leg numbers are per share for one option; the position numbers above are already times 100 per contract and signed for buy or sell. Model prices use Black-Scholes, which assumes exercise only at expiration (US options can be exercised early), so treat them as estimates.</p>
+</section>
+{% endif %}
+
+<script>
+// Show the second-strike fields only for spreads, and cost per share only for covered calls.
+(function () {
+  var sel = document.getElementById('opt-strategy');
+  if (!sel) return;
+  function sync() {
+    var two = sel.options[sel.selectedIndex].dataset.two === '1';
+    document.querySelectorAll('#opt-form .two-only').forEach(function (el) { el.hidden = !two; });
+    document.querySelectorAll('#opt-form .cc-only').forEach(function (el) { el.hidden = sel.value !== 'covered_call'; });
+    document.getElementById('strike-label').textContent = two ? 'First strike (bought)' : 'Strike';
+  }
+  sel.addEventListener('change', sync); sync();
+})();
+</script>
+{% endblock %}

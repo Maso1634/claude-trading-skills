@@ -346,6 +346,7 @@ def detail(trade_id: int):
     return render_template(
         "journal/detail.html",
         t=t,
+        calc_link=_calculator_link(t["fills"]),
         attachments=attachments,
         mistakes=db.all_mistakes(conn),
         setups=db.all_setups(conn),
@@ -353,6 +354,36 @@ def detail(trade_id: int):
         instruments=instruments,
         open_legs=open_legs,
         now_local_input=datetime.now(tz()).strftime("%Y-%m-%dT%H:%M"),
+    )
+
+
+def _calculator_link(fills: list) -> str | None:
+    """Options calculator URL prefilled from a single-contract option trade, else None."""
+    if not fills or len({f["instrument_id"] for f in fills}) != 1:
+        return None
+    first = fills[0]
+    if first["asset_class"] != "option" or first["right"] not in ("call", "put"):
+        return None
+    opening = [f for f in fills if f["side"] == first["side"]]
+    qty = sum((pnl.dec(f["quantity"]) for f in opening), pnl.ZERO)
+    if qty <= 0:
+        return None
+    avg = sum((pnl.dec(f["quantity"]) * pnl.dec(f["price"]) for f in opening), pnl.ZERO) / qty
+    strategy = {
+        ("buy", "call"): "long_call",
+        ("buy", "put"): "long_put",
+        ("sell", "call"): "covered_call",
+        ("sell", "put"): "cash_secured_put",
+    }[(first["side"], first["right"])]
+    return url_for(
+        "options.calculator",
+        strategy=strategy,
+        symbol=first["underlying"] or "",
+        strike=first["strike"],
+        expiry=first["expiry"],
+        premium=f"{avg:.2f}",
+        contracts=f"{qty.normalize():f}",
+        go=1,
     )
 
 

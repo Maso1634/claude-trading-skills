@@ -1,6 +1,6 @@
 """Trading dashboard: a Flask app over claude-trading-skills output.
 
-Everything is read-only except two pages: the trade journal (/journal), which saves
+Everything is read-only except two pages (the Options calculator only reads): the trade journal (/journal), which saves
 to its own SQLite file in JOURNAL_DIR, and New thesis (/theses/new), which adds an
 IDEA thesis to THESES_DIR through trader-memory-core. Nothing here can place,
 change or cancel orders.
@@ -51,9 +51,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     tz = ZoneInfo(cfg["TIMEZONE"])
 
     from .journal.views import bp as journal_bp
+    from .options.views import bp as options_bp
     from .thesis_form import bp as thesis_form_bp
 
     app.register_blueprint(journal_bp)
+    app.register_blueprint(options_bp)
     app.register_blueprint(thesis_form_bp)
 
     def now_local() -> datetime:

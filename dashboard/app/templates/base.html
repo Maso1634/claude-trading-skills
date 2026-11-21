@@ -21,6 +21,7 @@
   <nav aria-label="Main">
     <a href="{{ url_for('overview') }}" {% if request.endpoint == 'overview' %}class="on"{% endif %}>Overview</a>
     <a href="{{ url_for('journal.index') }}" {% if request.blueprint == 'journal' %}class="on"{% endif %}>Journal</a>
+    <a href="{{ url_for('options.calculator') }}" {% if request.blueprint == 'options' %}class="on"{% endif %}>Options</a>
     <a href="{{ url_for('theses_page') }}" {% if request.endpoint in ('theses_page', 'thesis_detail') %}class="on"{% endif %}>Theses</a>
     <a href="{{ url_for('reports_page') }}" {% if request.endpoint in ('reports_page', 'report_view') %}class="on"{% endif %}>Reports</a>
   </nav>
