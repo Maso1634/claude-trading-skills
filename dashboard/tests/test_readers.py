@@ -114,3 +114,50 @@ def test_age_hours_with_aware_stamp():
     now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
     stamp = datetime(2026, 11, 19, 6, 0, tzinfo=timezone.utc)
     assert readers.age_hours(stamp, now) == 6
+
+
+# --- stale badge: measured against the last scheduled refresh, not raw hours ---
+from zoneinfo import ZoneInfo  # noqa: E402
+
+ET = ZoneInfo("America/New_York")
+
+
+def _et(*args):
+    return datetime(*args, tzinfo=ET)
+
+
+def test_friday_report_not_stale_over_the_weekend():
+    friday = _et(2026, 11, 20, 16, 25)
+    assert not readers.is_stale(friday, now=_et(2026, 11, 22, 12, 0))  # Sunday
+    assert not readers.is_stale(friday, now=_et(2026, 11, 23, 9, 30))  # Monday morning
+
+
+def test_friday_report_stale_after_monday_run_is_due():
+    friday = _et(2026, 11, 20, 16, 25)
+    # Monday's 4:20 PM run gets a grace period before the badge shows.
+    assert not readers.is_stale(friday, now=_et(2026, 11, 23, 17, 0))
+    assert readers.is_stale(friday, now=_et(2026, 11, 23, 19, 0))
+
+
+def test_missed_weekday_run_is_stale():
+    monday = _et(2026, 11, 23, 16, 25)
+    assert readers.is_stale(monday, now=_et(2026, 11, 25, 9, 0))  # Tuesday's run missed
+
+
+def test_market_holiday_is_not_a_missed_run():
+    wednesday = _et(2026, 11, 25, 16, 25)
+    # Thanksgiving (Thu 2026-11-26): no session, so no run is expected.
+    assert not readers.is_stale(wednesday, now=_et(2026, 11, 26, 20, 0))
+    assert readers.is_stale(wednesday, now=_et(2026, 11, 27, 19, 0))
+
+
+def test_is_stale_naive_stamp_means_utc():
+    friday_utc = datetime(2026, 11, 20, 21, 25)  # 4:25 PM ET
+    assert not readers.is_stale(friday_utc, now=_et(2026, 11, 23, 9, 30))
+
+
+def test_weekday_fallback_without_market_calendar(monkeypatch):
+    monkeypatch.setattr(readers, "_market_holidays", lambda start, end: set())
+    wednesday = _et(2026, 11, 25, 16, 25)
+    # Without the calendar, Thanksgiving counts as a normal weekday.
+    assert readers.is_stale(wednesday, now=_et(2026, 11, 26, 20, 0))
