@@ -23,8 +23,6 @@ from markupsafe import Markup
 from . import alpaca, readers
 from .charts import line_chart
 
-STALE_HOURS = 30  # a weekday report older than this missed a run
-
 
 def _render_markdown(text: str) -> Markup:
     return Markup(md_lib.markdown(text, extensions=["tables", "fenced_code", "sane_lists"]))
@@ -97,7 +95,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         latest = readers.latest(app.config["REPORTS_DIR"], key)
         if latest and latest["stamp"]:
             latest["age_hours"] = readers.age_hours(latest["stamp"])
-            latest["stale"] = latest["age_hours"] > STALE_HOURS
+            latest["stale"] = readers.is_stale(latest["stamp"])
         return latest
 
     @app.get("/")

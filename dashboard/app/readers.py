@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -69,6 +71,57 @@ def age_hours(stamp: datetime, now: datetime | None = None) -> float:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return (now - stamp).total_seconds() / 3600
+
+
+# The refresh cron runs at 4:20 PM ET on trading days. A report counts as stale
+# only when a scheduled run that should have replaced it has come and gone, so
+# Friday's report stays fresh over the weekend and on market holidays.
+MARKET_TZ = ZoneInfo("America/New_York")
+REFRESH_TIME = time(16, 20)
+REFRESH_GRACE = timedelta(hours=2)  # time for the run to finish before we complain
+EARLY_SLACK = timedelta(hours=1)  # a hand run shortly before 4:20 still counts
+
+
+@lru_cache(maxsize=32)
+def _market_holidays(start: date, end: date) -> frozenset[date]:
+    """NYSE weekday closures between start and end. Empty if the calendar is unavailable."""
+    try:
+        import pandas_market_calendars as mcal
+
+        nyse = mcal.get_calendar("NYSE")
+        open_days = {d.date() for d in nyse.valid_days(start_date=start, end_date=end)}
+    except Exception:  # missing package or calendar data: treat every weekday as a session
+        return frozenset()
+    days = (start + timedelta(n) for n in range((end - start).days + 1))
+    return frozenset(d for d in days if d.weekday() < 5 and d not in open_days)
+
+
+def last_due_refresh(now: datetime | None = None) -> datetime:
+    """The most recent scheduled refresh (4:20 PM ET, trading days) whose grace period has passed."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now_et = now.astimezone(MARKET_TZ)
+    day = now_et.date()
+    # Look up a month at a time so the cache is reused across requests.
+    holidays = _market_holidays(
+        day.replace(day=1) - timedelta(days=31), day.replace(day=1) + timedelta(days=31)
+    )
+    for back in range(15):
+        d = day - timedelta(days=back)
+        if d.weekday() >= 5 or d in holidays:
+            continue
+        run = datetime.combine(d, REFRESH_TIME, tzinfo=MARKET_TZ)
+        if run + REFRESH_GRACE <= now_et:
+            return run
+    return datetime.combine(day - timedelta(days=15), REFRESH_TIME, tzinfo=MARKET_TZ)
+
+
+def is_stale(stamp: datetime, now: datetime | None = None) -> bool:
+    """True when a scheduled refresh should have replaced this report (stamp naive = UTC)."""
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp < last_due_refresh(now) - EARLY_SLACK
 
 
 def _sort_key(path: Path) -> tuple[datetime, str]:
