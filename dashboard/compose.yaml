@@ -27,6 +27,25 @@ services:
     tmpfs:
       - /tmp
 
+  # Interactive Brokers (IBKR) IB Gateway, with IBC to log in and restart it daily.
+  # Off unless COMPOSE_PROFILES=ibkr is in .env. Login details live in ibkr.env
+  # (git-ignored, chmod 600), so the dashboard container never sees the password.
+  # No "ports:" on purpose: only containers in this Compose project can reach the
+  # API (4004 paper, 4003 live), so nothing else on the network can.
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable   # pin a version tag once tested
+    container_name: ib-gateway
+    profiles: ["ibkr"]
+    restart: unless-stopped
+    env_file: ibkr.env
+    environment:
+      TRADING_MODE: paper
+      READ_ONLY_API: "yes"             # the API can read data but never place orders
+      TIME_ZONE: America/New_York
+      AUTO_RESTART_TIME: "11:59 PM"    # daily restart without a new login
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+
   # One-shot job that writes fresh market reports. Started by cron:
   #   docker compose run --rm refresh
   refresh:

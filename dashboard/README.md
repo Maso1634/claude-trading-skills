@@ -294,6 +294,37 @@ to a CLI-made thesis and the skills (circuit breaker, reviews) see it right away
 
 ---
 
+## Interactive Brokers (IBKR) data (optional, phase 1)
+
+IBKR's API has no API key. Programs talk to **IB Gateway**, a small logged-in Java app
+from IBKR. The `ib-gateway` service runs the community image
+[gnzsnz/ib-gateway](https://github.com/gnzsnz/ib-gateway-docker), which bundles IBC
+(it types the login, restarts the gateway every night, and waits for your 2FA approval).
+
+Safety by design:
+- The gateway runs with `READ_ONLY_API=yes` and `app/ibkr.py` connects with
+  `readonly=True`, so nothing can place an order.
+- It has no published port. Only containers in this Compose project can reach it.
+- It logs in to the **paper** account. The login lives in `ibkr.env`, which only the
+  gateway container reads.
+
+Turn it on (CT 104 needs about 1 GB more RAM, so give it 3 GB and 2 cores first):
+
+```bash
+cd /opt/claude-trading-skills/dashboard
+cp ibkr.env.example ibkr.env && chmod 600 ibkr.env && nano ibkr.env   # paper username + password
+# in .env: uncomment COMPOSE_PROFILES=ibkr and set IBKR_HOST=ib-gateway
+docker compose up -d --build
+docker compose logs -f ib-gateway        # approve the login in IBKR Mobile if asked
+docker compose exec dashboard python -m app.ibkr SPY
+```
+
+The last command prints a quote and says whether it is `delayed` or `live`. Delayed data is
+free. `IBKR_MARKET_DATA=live` needs the paid subscriptions on your IBKR account.
+
+Only one session per IBKR username can be logged in. Logging into the paper account
+somewhere else (browser, TWS) kicks the gateway off until its next restart.
+
 ## Switching from paper to your real (live) account
 
 The dashboard stays read-only either way. Live only changes which account it shows.
