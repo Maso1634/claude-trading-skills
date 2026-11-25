@@ -163,7 +163,7 @@
   {% set stats = (vcp.data.metadata or {}).api_stats or {} %}
   {% if stats.data_sources %}
   <p class="small muted">Prices from
-    {% for name, n in stats.data_sources | dictsort %}{{ {'alpaca': 'Alpaca SIP', 'yfinance': 'Yahoo (yfinance)', 'fmp': 'FMP'}.get(name, name) }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}.
+    {% for name, n in stats.data_sources | dictsort %}{{ {'alpaca': 'Alpaca SIP', 'yfinance': 'Yahoo (yfinance)', 'fmp': 'FMP', 'ibkr': 'IBKR'}.get(name, name) }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}.
     {% for name, err in (stats.source_errors or {}).items() %}<span class="warn">{{ name }} failed: {{ err }}.</span> {% endfor %}
   </p>
   {% endif %}
