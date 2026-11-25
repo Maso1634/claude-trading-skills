@@ -10,11 +10,18 @@
       {% for s in strategies.values() %}<option value="{{ s.key }}" data-two="{{ 1 if s.two_strikes else 0 }}" {{ 'selected' if form.strategy == s.key }}>{{ s.name }}{% if s.level > 2 %} (Level {{ s.level }}){% endif %}</option>{% endfor %}
     </select></label>
     <label>Ticker <input name="symbol" value="{{ form.symbol }}" placeholder="e.g. AAPL" autocapitalize="characters"></label>
-    <label>Stock price <input name="price" inputmode="decimal" value="{{ form.price or '' }}" placeholder="{{ 'looked up from ticker' if alpaca_ready else '' }}"></label>
+    <label>Stock price <input name="price" inputmode="decimal" value="{{ form.price or '' }}" placeholder="{{ 'looked up from ticker' if alpaca_ready or ibkr_ready else '' }}"></label>
+    {% if expiry_choices %}
+    <label>Expiration <select name="expiry">
+      {% for d in expiry_choices %}<option value="{{ d }}" {{ 'selected' if form.expiry == d }}>{{ d }}</option>{% endfor %}
+    </select></label>
+    {% else %}
     <label>Expiration <input type="date" name="expiry" value="{{ form.expiry }}"></label>
-    <label><span id="strike-label">Strike</span> <input name="strike" inputmode="decimal" value="{{ form.strike or '' }}"></label>
+    {% endif %}
+    <label><span id="strike-label">Strike</span> <input name="strike" inputmode="decimal" value="{{ form.strike or '' }}" {% if strike_choices %}list="listed-strikes"{% endif %}></label>
+    {% if strike_choices %}<datalist id="listed-strikes">{% for k in strike_choices %}<option value="{{ '%g' | format(k) }}">{% endfor %}</datalist>{% endif %}
     <label>Premium per share <input name="premium" inputmode="decimal" value="{{ form.premium or '' }}" placeholder="blank = estimate"></label>
-    <label class="two-only">Second strike (sold) <input name="strike2" inputmode="decimal" value="{{ form.strike2 or '' }}"></label>
+    <label class="two-only">Second strike (sold) <input name="strike2" inputmode="decimal" value="{{ form.strike2 or '' }}" {% if strike_choices %}list="listed-strikes"{% endif %}></label>
     <label class="two-only">Second premium per share <input name="premium2" inputmode="decimal" value="{{ form.premium2 or '' }}" placeholder="blank = estimate"></label>
     <label class="cc-only">Your cost per share <input name="cost_basis" inputmode="decimal" value="{{ form.cost_basis or '' }}" placeholder="blank = stock price"></label>
     <label>IV % <input name="iv" inputmode="decimal" value="{{ form.iv or '' }}" placeholder="e.g. 35"></label>
@@ -24,15 +31,25 @@
     <div class="actions wide"><button class="btn primary" type="submit">Calculate</button>
       <a class="btn" href="{{ url_for('options.calculator') }}">Clear</a></div>
   </form>
-  {% if quote %}
+  {% if quote and quote.source == 'IBKR' %}
+  <p class="small muted">{{ quote.symbol }}: {{ quote.price | money if quote.price else '—' }} from IBKR
+    <span class="chip">{{ quote.data }}</span>{% if quote.data == 'delayed' %} (about 15 minutes behind){% endif %}
+    {% if hv %} · 30-day historical volatility {{ (hv * 100) | pct(0) }}{% endif %}
+    {% if cross_check %} · Alpaca IEX {{ cross_check.price | money }}{% if cross_check.mismatch %} <span class="chip bad">differs {{ cross_check.gap | pct(1) }}, check a chart</span>{% else %} (agrees within {{ cross_check.gap | pct(1) }}){% endif %}{% endif %}.
+    {% if form.iv_from_market %}IV was filled in from the market (IBKR's implied volatility for this contract).{% elif form.iv_from_hv %}IV was filled in from historical volatility; pick a listed expiration and strike to use the market's IV instead.{% endif %}
+    {% if form.premium_from_market or form.premium2_from_market %}Premiums were filled in at the market mid.{% endif %}</p>
+  {% elif quote %}
   <p class="small muted">{{ quote.symbol }}: last IEX trade {{ quote.price | money if quote.price else '—' }}{% if quote.price_time %} at {{ quote.price_time[:16] | replace('T', ' ') }} UTC{% endif %}
     {% if hv %} · 30-day historical volatility {{ (hv * 100) | pct(0) }}{% endif %}.
+    {% if market and market.error %}IBKR wasn't available ({{ market.error }}), so this came from Alpaca.{% endif %}
     {% if form.iv_from_hv %}IV was filled in from historical volatility. Replace it with the contract's IV from Robinhood for accurate numbers.{% endif %}</p>
   {% elif quote_error %}<p class="small muted">Couldn't look up {{ form.symbol }}: {{ quote_error }}</p>{% endif %}
+  {% if market and market.notes %}<ul class="warnlist small">{% for n in market.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
   <details><summary>What do IV, HV and the interest rate mean?</summary>
     <p class="explain"><b>IV.</b> {{ explain.iv }}</p>
     <p class="explain"><b>HV.</b> {{ explain.hv }}</p>
     <p class="explain"><b>Rate.</b> {{ explain.rate }}</p>
+    <p class="explain"><b>Mid.</b> {{ explain.mid }}</p>
     <p class="explain"><b>Premium.</b> The option's price per share, as Robinhood shows it. One contract costs 100 times that. Leave it blank and the calculator estimates it with Black-Scholes, the standard pricing formula.</p>
   </details>
 </section>
@@ -56,6 +73,26 @@
   <p class="explain">{{ a.capital_note }}</p>
   <p class="explain"><b>Breakeven:</b> {{ explain.breakeven }} <b>Chance of profit:</b> {{ explain.prob }}</p>
 </section>
+
+{% if market and market.legs %}
+<section class="panel">
+  <h2>Market vs model <span class="chip">IBKR · {{ market.legs[0].data }}</span></h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Contract</th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Mid</th><th class="num">Model price</th><th class="num">Market IV</th><th class="num">Market delta</th><th class="num">Model delta</th></tr></thead>
+    <tbody>{% for m in market.legs %}{% set ml = model_legs.get(m.strike) %}
+      <tr><td>{{ '%g' | format(m.strike) }} {{ 'call' if m.right == 'C' else 'put' }}</td>
+        <td class="num">{{ '%.2f' | format(m.bid) if m.bid is not none else '—' }}</td>
+        <td class="num">{{ '%.2f' | format(m.ask) if m.ask is not none else '—' }}</td>
+        <td class="num">{{ '%.2f' | format(m.mid) if m.mid is not none else '—' }}</td>
+        <td class="num">{{ '%.2f' | format(ml.greeks.price) if ml and ml.greeks else '—' }}</td>
+        <td class="num">{{ ((m.iv * 100) | pct(1)) if m.iv else '—' }}</td>
+        <td class="num">{{ '%.3f' | format(m.delta) if m.delta is not none else '—' }}</td>
+        <td class="num">{{ '%.3f' | format(ml.greeks.delta) if ml and ml.greeks else '—' }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="explain">{{ explain.market_vs_model }} {{ explain.mid }}</p>
+</section>
+{% endif %}
 
 <section class="panel">
   <h2>Payoff</h2>

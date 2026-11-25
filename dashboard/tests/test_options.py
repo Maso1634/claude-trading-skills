@@ -242,3 +242,148 @@ def test_stock_quote_is_get_only_and_cached(monkeypatch):
 def test_stock_quote_rejects_bad_symbol():
     with pytest.raises(alpaca.AlpacaError):
         alpaca.AlpacaReadOnly("k", "s").stock_quote("../v2/account")
+
+
+# ---- IBKR market data on the page ----
+
+
+class FakeIbkrSession:
+    def __init__(self, reader):
+        self.r = reader
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def stock_quote(self, symbol):
+        if self.r.down:
+            from app.ibkr import IbkrError
+
+            raise IbkrError("IB Gateway isn't answering")
+        return {
+            "symbol": symbol,
+            "price": 100.0,
+            "closes": [100.0 + (i % 3) for i in range(40)],
+            "data": "delayed",
+            "source": "IBKR",
+        }
+
+    def option_chain(self, symbol):
+        return {
+            "expirations": [date(2099, 1, 16), date(2099, 2, 20)],
+            "strikes": [95.0, 100.0, 105.0],
+        }
+
+    def option_quote(self, symbol, expiry, strike, right):
+        self.r.option_calls.append((expiry, strike, right))
+        return {
+            "bid": 2.0,
+            "ask": 2.4,
+            "mid": 2.2,
+            "last": 2.1,
+            "iv": 0.325,
+            "delta": 0.51,
+            "gamma": 0.03,
+            "theta": -0.02,
+            "vega": 0.1,
+            "data": "delayed",
+        }
+
+
+class FakeIbkr:
+    def __init__(self, down=False):
+        self.down = down
+        self.option_calls = []
+
+    def session(self):
+        return FakeIbkrSession(self)
+
+
+class FakeAlpaca:
+    paper = True
+
+    def __init__(self, price):
+        self.price = price
+
+    def stock_quote(self, symbol):
+        return {"symbol": symbol, "price": self.price, "price_time": None, "closes": [99.0] * 40}
+
+
+def ib_app(reports_dir, state_dir, tmp_path, ib, alpaca_client=None):
+    a = create_app(
+        {
+            "REPORTS_DIR": reports_dir,
+            "STATE_DIR": state_dir,
+            "ALPACA": alpaca_client,
+            "IBKR": ib,
+            "JOURNAL_DIR": None,
+        }
+    )
+    a.testing = True
+    return a
+
+
+def test_ibkr_fills_listed_expiry_market_premium_and_iv(reports_dir, state_dir, tmp_path):
+    ib = FakeIbkr()
+    a = ib_app(reports_dir, state_dir, tmp_path, ib)
+    body = (
+        a.test_client()
+        .get("/options/?symbol=spy&strategy=long_call&strike=100")
+        .get_data(as_text=True)
+    )
+    assert "from IBKR" in body and "delayed" in body
+    assert '<option value="2099-01-16" selected>' in body  # first listed expiry >= 28 days
+    assert ib.option_calls == [(date(2099, 1, 16), 100.0, "C")]
+    assert "Market vs model" in body and "2.20" in body
+    assert "IV was filled in from the market" in body
+    assert 'value="32.5"' in body  # market IV used for the model
+    assert "$220.00" in body  # 1 contract at the 2.20 mid
+
+
+def test_user_typed_premium_and_iv_win_over_market(reports_dir, state_dir, tmp_path):
+    a = ib_app(reports_dir, state_dir, tmp_path, FakeIbkr())
+    body = (
+        a.test_client()
+        .get("/options/?symbol=SPY&strategy=long_call&strike=100&premium=3&iv=40&expiry=2099-01-16")
+        .get_data(as_text=True)
+    )
+    assert "$300.00" in body and "IV was filled in from the market" not in body
+
+
+def test_unlisted_strike_and_expiry_explained(reports_dir, state_dir, tmp_path):
+    a = ib_app(reports_dir, state_dir, tmp_path, FakeIbkr())
+    c = a.test_client()
+    body = c.get("/options/?symbol=SPY&strategy=long_call&strike=101&expiry=2099-01-16").get_data(
+        as_text=True
+    )
+    assert "101 isn&#39;t a listed strike. Nearest: 100 or 105." in body
+    body = c.get("/options/?symbol=SPY&strategy=long_call&strike=100&expiry=2099-01-17").get_data(
+        as_text=True
+    )
+    assert "No SPY options expire on Jan 17, 2099" in body
+
+
+def test_spread_quotes_both_legs(reports_dir, state_dir, tmp_path):
+    ib = FakeIbkr()
+    a = ib_app(reports_dir, state_dir, tmp_path, ib)
+    a.test_client().get(
+        "/options/?symbol=SPY&strategy=bear_put_spread&strike=105&strike2=95&expiry=2099-02-20"
+    )
+    assert ib.option_calls == [(date(2099, 2, 20), 105.0, "P"), (date(2099, 2, 20), 95.0, "P")]
+
+
+def test_alpaca_cross_check_flags_disagreement(reports_dir, state_dir, tmp_path):
+    a = ib_app(reports_dir, state_dir, tmp_path, FakeIbkr(), FakeAlpaca(103.0))
+    body = a.test_client().get("/options/?symbol=SPY").get_data(as_text=True)
+    assert "check a chart" in body
+    a = ib_app(reports_dir, state_dir, tmp_path, FakeIbkr(), FakeAlpaca(100.2))
+    body = a.test_client().get("/options/?symbol=SPY").get_data(as_text=True)
+    assert "agrees within" in body
+
+
+def test_gateway_down_falls_back_to_alpaca(reports_dir, state_dir, tmp_path):
+    a = ib_app(reports_dir, state_dir, tmp_path, FakeIbkr(down=True), FakeAlpaca(99.5))
+    body = a.test_client().get("/options/?symbol=SPY").get_data(as_text=True)
+    assert "last IEX trade $99.50" in body and "IBKR wasn" in body

@@ -14,7 +14,7 @@ What it shows:
 | Latest VCP screen | `reports/vcp_screener_*.json` |
 | Trade journal (the only page that saves) | `trade-journal/journal.db` + `trade-journal/screenshots/`, filled by hand or from a Robinhood CSV |
 | Reports page | Every report above, rendered from its `.md` or `.json` |
-| Options calculator (read-only) | Your inputs, plus the stock's last IEX trade and daily bars from Alpaca market data when you type a ticker |
+| Options calculator (read-only) | Your inputs. With IBKR on: the stock price, real expirations and strikes, and each leg's bid/ask, IV and Greeks from IB Gateway, cross-checked against Alpaca. Otherwise the last IEX trade and daily bars from Alpaca |
 
 What it can't do: place, change or cancel orders. The Alpaca client in
 `app/alpaca.py` only sends GET requests: `/v2/account` and `/v2/positions`, plus a
@@ -319,7 +319,9 @@ docker compose logs -f ib-gateway        # approve the login in IBKR Mobile if a
 docker compose exec dashboard python -m app.ibkr SPY
 ```
 
-The last command prints a quote and says whether it is `delayed` or `live`. Delayed data is
+The last command prints a quote and says whether it is `delayed` or `live`.
+
+With `IBKR_HOST` set, the **Options** page uses IBKR first: type a ticker and the expiration becomes a list of real expirations, strikes are suggested from the chain, and a *Market vs model* table shows each leg's bid/ask/mid, IBKR's implied volatility and delta next to the Black-Scholes model. Blank premium and IV fields are filled from the market mid and IV. If the gateway isn't answering, the page falls back to Alpaca and says so. Delayed data is
 free. `IBKR_MARKET_DATA=live` needs the paid subscriptions on your IBKR account.
 
 Only one session per IBKR username can be logged in. Logging into the paper account
