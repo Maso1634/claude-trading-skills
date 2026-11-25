@@ -27,6 +27,9 @@ LIVE_PORT = 4003
 # reqMarketDataType: 1 = live, 3 = delayed (free, about 15 minutes behind)
 DATA_TYPES = {"live": 1, "delayed": 3}
 DATA_NAMES = {1: "live", 2: "frozen", 3: "delayed", 4: "delayed-frozen"}
+# Status notices IBKR sends through the error channel that are not errors
+# (data farm connection OK, delayed data instead of live, and similar).
+INFO_CODES = {2104, 2106, 2107, 2108, 2158, 10167, 10089, 10090, 10091}
 CLIENT_ID = 17  # any number not used by another API client on the same gateway
 
 
@@ -226,6 +229,29 @@ class IbkrSession:
             if has_quote and (not need_greeks or getattr(ticker, "modelGreeks", None)):
                 return
 
+    def _history(self, contract: Any, duration: str, size: str) -> tuple[list[Any], list[str]]:
+        """reqHistoricalData plus the error messages IBKR sent while it ran.
+
+        ib_async returns an empty list on a refused or timed-out request and only
+        reports why through errorEvent, so the messages are collected here.
+        """
+        ib = self._conn()
+        messages: list[str] = []
+
+        def on_error(req_id, code, text, *rest):
+            if code not in INFO_CODES:
+                messages.append(f"{text} (IBKR error {code})")
+
+        event = getattr(ib, "errorEvent", None)
+        if event is not None:
+            event += on_error
+        try:
+            raw = ib.reqHistoricalData(contract, "", duration, size, "TRADES", True, timeout=20)
+        finally:
+            if event is not None:
+                event -= on_error
+        return list(raw or []), messages
+
     def stock_quote(self, symbol: str) -> dict[str, Any]:
         symbol = _check_symbol(symbol)
         return self._r.cached(("stock", symbol), 60, lambda: self._stock_quote(symbol))
@@ -241,7 +267,7 @@ class IbkrSession:
         ticker = ib.reqMktData(contract)
         self._wait(ticker, need_greeks=False, seconds=4)
         ib.cancelMktData(contract)
-        bars = ib.reqHistoricalData(contract, "", "4 M", "1 day", "TRADES", True)
+        bars, _ = self._history(contract, "4 M", "1 day")
         kind = getattr(ticker, "marketDataType", self._r.settings.market_data_type)
         return {
             "symbol": symbol,
@@ -272,7 +298,11 @@ class IbkrSession:
 
         contract = Stock(symbol, "SMART", "USD")
         contract.conId = con_id
-        raw = self._conn().reqHistoricalData(contract, "", duration, size, "TRADES", True) or []
+        raw, messages = self._history(contract, duration, size)
+        if not raw:
+            # Raising (not returning []) also keeps the empty answer out of the cache.
+            why = "; ".join(dict.fromkeys(messages)) or "no reason given (request timed out?)"
+            raise IbkrError(f"IBKR returned no {size} bars for {symbol}: {why}")
         out = []
         for b in raw:
             t = b.date
