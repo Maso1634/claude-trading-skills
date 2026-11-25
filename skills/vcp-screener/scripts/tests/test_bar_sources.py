@@ -385,3 +385,30 @@ def test_ibkr_is_first_cross_check_when_configured(monkeypatch):
     env.pop("IBKR_HOST")
     client = build_bars_client("auto", env=env)
     assert [s.name for s in client.cross_check_sources] == ["yfinance", "alpaca"]
+
+
+def test_ibkr_checks_price_and_next_source_checks_volume():
+    alpaca = FakeSource("alpaca", {"AAA": bars(), "BBB": bars(), "CCC": bars()})
+    ib_rows = {
+        s: [dict(r, volume=None) for r in bars(n=5, close=c)]
+        for s, c in (("AAA", 100.0), ("BBB", 100.0), ("CCC", 103.0))
+    }
+    ibkr = FakeSource("ibkr", ib_rows)
+    ibkr.compares_volume = False
+    yahoo = FakeSource("yfinance", {"AAA": bars(n=5), "BBB": bars(n=5, volume=900000)})
+    client = BarsClient([alpaca], cross_check_sources=[ibkr, yahoo, alpaca], today=LAST)
+    client.get_batch_quotes(["AAA", "BBB", "CCC"])
+    checks = client.cross_check(["AAA", "BBB", "CCC"])
+    assert checks["AAA"]["status"] == "ok" and checks["AAA"]["other_source"] == "ibkr"
+    assert checks["AAA"]["volume_source"] == "yfinance"
+    assert checks["BBB"]["status"] == "volume_mismatch" and checks["BBB"]["other_source"] == "ibkr"
+    assert checks["CCC"]["status"] == "mismatch"  # IBKR price gap stands
+    assert all("volume_pending" not in c for c in checks.values())
+    assert yahoo.requested == [["AAA", "BBB", "CCC"]]
+
+
+def test_ibkr_rows_carry_no_volume():
+    mod, _ = fake_ib_module([date(2026, 11, 12)])
+    got = IbkrBarSource("ib-gateway", ib_module=mod, now=ET_NOON).fetch(["AAA"], LAST)
+    assert got["AAA"][0]["volume"] is None
+    assert IbkrBarSource.compares_volume is False
