@@ -116,6 +116,7 @@ IMPORT_TO_DIST = {
     "yaml": "pyyaml",
     "jsonschema": "jsonschema",
     "packaging": "packaging",
+    "ib_async": "ib-async",
 }
 
 # Extra required distributions keyed by skill for runtime uses invisible to

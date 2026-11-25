@@ -46,7 +46,9 @@ full S&P 500 on a free key. Use `--data-source auto` to screen from daily bars
 instead: Alpaca SIP (consolidated tape, split-adjusted; needs `ALPACA_API_KEY`
 and `ALPACA_SECRET_KEY`, free plan works because the request ends 16 minutes
 ago), then yfinance for any symbol Alpaca missed, then FMP. The shown results
-are cross-checked against a second source; each result carries `data_source`
+are cross-checked against a second source (Interactive Brokers through IB
+Gateway first when `IBKR_HOST` is set and the optional `ib-async` package is
+installed, then yfinance, then Alpaca); each result carries `data_source`
 and `cross_check.status` (`ok`, `mismatch` above 1% price gap, `volume_mismatch`
 above 20%, `stale`, `unavailable`). Treat a flagged result as unverified until
 its chart is checked.

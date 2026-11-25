@@ -1,4 +1,4 @@
-"""Daily-bar data sources for the VCP screener (Alpaca SIP, yfinance, FMP).
+"""Daily-bar data sources for the VCP screener (Alpaca SIP, yfinance, FMP, IBKR).
 
 The FMP path screens from batch quotes, which FMP's free plan refuses. These
 sources instead return a year of daily bars per symbol, and the screener
@@ -197,6 +197,108 @@ class AlpacaBarSource:
         except (KeyError, TypeError, ValueError):
             return None
         return row
+
+
+# ---------------------------------------------------------------------------
+# Interactive Brokers (IBKR) through IB Gateway: cross-check only
+# ---------------------------------------------------------------------------
+
+
+def _load_ib_async():
+    """Import ib_async lazily; None when not installed (IBKR is optional)."""
+    try:
+        import ib_async  # optional dependency
+    except ImportError:
+        return None
+    return ib_async
+
+
+class IbkrBarSource:
+    """Daily TRADES bars from IB Gateway (split-adjusted, like Alpaca's split adjustment).
+
+    Used only to cross-check the stocks a screen shows. IBKR paces historical
+    requests (about 60 per 10 minutes), so it is too slow to screen the whole
+    S&P 500 but fine for the 10-30 finalists. Read-only: connects with readonly=True.
+    Enabled by IBKR_HOST (the ib-gateway service name); IBKR_MODE=live uses port 4003.
+    """
+
+    name = "ibkr"
+    CLIENT_ID = 50  # the dashboard's web workers use 100+
+
+    def __init__(self, host: str, port: int = 4004, ib_module=None, now=None, timeout: int = 10):
+        if not host:
+            raise SourceError("IBKR_HOST is not set")
+        if ib_module is None:
+            ib_module = _load_ib_async()
+        if ib_module is None:
+            raise SourceError("ib_async is not installed")
+        self.ib = ib_module
+        self.host, self.port, self.timeout = host, port, timeout
+        self._now = now
+        self.calls = 0
+
+    @classmethod
+    def from_env(cls, env=None):
+        env = os.environ if env is None else env
+        live = env.get("IBKR_MODE", "").strip().lower() == "live"
+        return cls(env.get("IBKR_HOST", "").strip(), 4003 if live else 4004)
+
+    def _now_et(self) -> datetime:
+        return (self._now or datetime.now(timezone.utc)).astimezone(MARKET_TZ)
+
+    def fetch(self, symbols: list[str], start: date) -> dict[str, list[dict]]:
+        now = self._now_et()
+        session_over = (now.hour, now.minute) >= (16, 0)
+        days = max(2, (now.date() - start).days + 1)
+        duration = f"{days} D" if days <= 365 else f"{math.ceil(days / 365)} Y"
+        ib = self.ib.IB()
+        try:
+            ib.connect(
+                self.host, self.port, clientId=self.CLIENT_ID, readonly=True, timeout=self.timeout
+            )
+        except (ConnectionError, OSError, TimeoutError) as e:
+            raise SourceError(
+                f"IB Gateway at {self.host}:{self.port} isn't answering ({type(e).__name__})"
+            ) from e
+        out: dict[str, list[dict]] = {}
+        try:
+            for sym in symbols:
+                self.calls += 1
+                contract = self.ib.Stock(sym.replace("-", " "), "SMART", "USD")  # BRK-B -> BRK B
+                try:
+                    found = [c for c in (ib.qualifyContracts(contract) or []) if c is not None]
+                    if not found:
+                        continue
+                    raw = ib.reqHistoricalData(found[0], "", duration, "1 day", "TRADES", True)
+                except Exception as e:  # ib_async raises several types on bad symbols/timeouts
+                    print(f"WARN: IBKR bars for {sym} failed ({type(e).__name__})", file=sys.stderr)
+                    continue
+                rows = []
+                for b in raw or []:
+                    d = b.date
+                    if isinstance(d, datetime):
+                        d = d.astimezone(MARKET_TZ).date()
+                    if d == now.date() and not session_over:
+                        continue  # today's bar is still forming
+                    if not _finite(b.close) or b.close <= 0:
+                        continue
+                    rows.append(
+                        {
+                            "date": d.isoformat(),
+                            "open": b.open,
+                            "high": b.high,
+                            "low": b.low,
+                            "close": b.close,
+                            "adjClose": b.close,
+                            "volume": float(b.volume),
+                        }
+                    )
+                if rows:
+                    rows.sort(key=lambda r: r["date"], reverse=True)
+                    out[sym] = rows
+        finally:
+            ib.disconnect()
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +597,11 @@ class BarsClient:
 
 
 def build_bars_client(data_source: str, fmp_client=None, env=None) -> BarsClient:
-    """auto = Alpaca SIP, then yfinance, then FMP; cross-check on the others."""
+    """auto = Alpaca SIP, then yfinance, then FMP; cross-check on the others.
+
+    When IBKR_HOST is set, IBKR is the first cross-check source (yfinance and
+    Alpaca cover any symbol IBKR can't).
+    """
     env = os.environ if env is None else env
 
     def make(name):
@@ -520,6 +626,11 @@ def build_bars_client(data_source: str, fmp_client=None, env=None) -> BarsClient
     built = {name: make(name) for name in dict.fromkeys(order + ["alpaca", "yfinance"])}
     sources = [built[n] for n in order if built.get(n)]
     checkers = [built[n] for n in ("yfinance", "alpaca") if built.get(n)]
+    if env.get("IBKR_HOST", "").strip():
+        try:
+            checkers.insert(0, IbkrBarSource.from_env(env))
+        except SourceError as e:
+            print(f"WARN: ibkr cross-check unavailable: {e}", file=sys.stderr)
     client = BarsClient(sources, cross_check_sources=checkers)
     client.unconfigured = [name for name in order if built.get(name) is None]
     return client

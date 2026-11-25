@@ -11,8 +11,10 @@ import screen_vcp
 from bar_sources import (
     AlpacaBarSource,
     BarsClient,
+    IbkrBarSource,
     SourceError,
     YahooBarSource,
+    build_bars_client,
     compare_latest,
     quote_from_history,
 )
@@ -301,3 +303,85 @@ def test_yahoo_source_unavailable_without_yfinance(monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", None)
     with pytest.raises(SourceError):
         YahooBarSource()
+
+
+# ---------------------------------------------------------------------------
+# IBKR (cross-check only)
+# ---------------------------------------------------------------------------
+
+
+def fake_ib_module(bar_days, fail_connect=False, unknown=()):
+    calls = {"connected": [], "hist": [], "disconnected": 0}
+
+    class Stock:
+        def __init__(self, symbol, exchange, currency):
+            self.symbol = symbol
+
+    class IB:
+        def connect(self, host, port, clientId, readonly, timeout):
+            if fail_connect:
+                raise TimeoutError()
+            calls["connected"].append((host, port, readonly))
+
+        def qualifyContracts(self, c):
+            return [] if c.symbol in unknown else [c]
+
+        def reqHistoricalData(self, c, end, duration, size, what, rth):
+            calls["hist"].append((c.symbol, duration, size, what))
+            return [
+                SimpleNamespace(date=d, open=99.0, high=101.0, low=98.0, close=100.0, volume=5e5)
+                for d in bar_days
+            ]
+
+        def disconnect(self):
+            calls["disconnected"] += 1
+
+    return SimpleNamespace(IB=IB, Stock=Stock), calls
+
+
+ET_NOON = datetime(2026, 11, 13, 17, 0, tzinfo=timezone.utc)  # 12:00 ET
+ET_EVENING = datetime(2026, 11, 13, 21, 30, tzinfo=timezone.utc)  # 16:30 ET
+
+
+def test_ibkr_rows_newest_first_and_todays_bar_dropped_midday():
+    mod, calls = fake_ib_module([date(2026, 11, 11), date(2026, 11, 12), LAST])
+    src = IbkrBarSource("ib-gateway", ib_module=mod, now=ET_NOON)
+    got = src.fetch(["AAA", "BRK-B"], LAST - timedelta(days=14))
+    assert [r["date"] for r in got["AAA"]] == ["2026-11-12", "2026-11-11"]
+    assert calls["connected"] == [("ib-gateway", 4004, True)]
+    assert calls["hist"][0] == ("AAA", "15 D", "1 day", "TRADES")
+    assert calls["hist"][1][0] == "BRK B"
+    assert calls["disconnected"] == 1
+
+
+def test_ibkr_keeps_todays_bar_after_the_close_and_skips_unknown():
+    mod, _ = fake_ib_module([LAST], unknown={"ZZZ"})
+    src = IbkrBarSource("ib-gateway", ib_module=mod, now=ET_EVENING)
+    got = src.fetch(["AAA", "ZZZ"], LAST - timedelta(days=14))
+    assert got["AAA"][0]["date"] == LAST.isoformat() and "ZZZ" not in got
+
+
+def test_ibkr_gateway_down_is_a_source_error():
+    mod, _ = fake_ib_module([], fail_connect=True)
+    with pytest.raises(SourceError, match="isn't answering"):
+        IbkrBarSource("ib-gateway", ib_module=mod, now=ET_NOON).fetch(["AAA"], LAST)
+
+
+def test_ibkr_needs_host_and_library(monkeypatch):
+    with pytest.raises(SourceError, match="IBKR_HOST"):
+        IbkrBarSource("")
+    monkeypatch.setitem(sys.modules, "ib_async", None)
+    with pytest.raises(SourceError, match="not installed"):
+        IbkrBarSource("ib-gateway")
+
+
+def test_ibkr_is_first_cross_check_when_configured(monkeypatch):
+    monkeypatch.setattr("bar_sources.YahooBarSource", lambda: FakeSource("yfinance"))
+    mod, _ = fake_ib_module([])
+    monkeypatch.setattr("bar_sources._load_ib_async", lambda: mod)
+    env = {"ALPACA_API_KEY": "k", "ALPACA_SECRET_KEY": "s", "IBKR_HOST": "ib-gateway"}
+    client = build_bars_client("auto", env=env)
+    assert [s.name for s in client.cross_check_sources] == ["ibkr", "yfinance", "alpaca"]
+    env.pop("IBKR_HOST")
+    client = build_bars_client("auto", env=env)
+    assert [s.name for s in client.cross_check_sources] == ["yfinance", "alpaca"]
