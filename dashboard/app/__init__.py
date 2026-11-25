@@ -20,7 +20,7 @@ from flask import Flask, abort, jsonify, render_template, request
 from jinja2 import UndefinedError
 from markupsafe import Markup
 
-from . import alpaca, readers
+from . import alpaca, ibkr, readers
 from .charts import line_chart
 
 STALE_HOURS = 30  # a weekday report older than this missed a run
@@ -37,6 +37,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         "STATE_DIR": Path(os.environ.get("STATE_DIR", "/data/state")),
         "TIMEZONE": os.environ.get("TZ_DISPLAY", "America/New_York"),
         "ALPACA": "env",
+        "IBKR": "env",
         "JOURNAL_DIR": os.environ.get("JOURNAL_DIR") or None,
         "SKILLS_DIR": os.environ.get("SKILLS_DIR") or None,
         "THESES_DIR": os.environ.get("THESES_DIR") or None,
@@ -45,6 +46,8 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     cfg.update(config or {})
     if cfg["ALPACA"] == "env":
         cfg["ALPACA"] = alpaca.from_env(os.environ)
+    if cfg["IBKR"] == "env":
+        cfg["IBKR"] = ibkr.reader_from_env(os.environ)
     cfg["REPORTS_DIR"] = Path(cfg["REPORTS_DIR"])
     cfg["STATE_DIR"] = Path(cfg["STATE_DIR"])
     app.config.update(cfg)
