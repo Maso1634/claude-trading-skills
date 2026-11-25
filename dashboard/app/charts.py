@@ -19,10 +19,12 @@ def line_chart(
     height: int = 196,
     step: bool = False,
     label: str = "",
+    pad_left: int = 36,
+    extra_class: str = "",
 ) -> Markup:
     if not points:
         return Markup('<p class="muted">No history yet.</p>')
-    pad_l, pad_r, pad_t, pad_b = 36, 12, 26, 24
+    pad_l, pad_r, pad_t, pad_b = pad_left, 12, 26, 24
     inner_w = width - pad_l - pad_r
     inner_h = height - pad_t - pad_b
     span = (y_max - y_min) or 1
@@ -41,7 +43,7 @@ def line_chart(
         coords.append(f"{x(i):.1f},{y(v):.1f}")
 
     parts = [
-        f'<svg class="chart" viewBox="0 0 {width} {height}" role="img"'
+        f'<svg class="chart{(" " + extra_class) if extra_class else ""}" viewBox="0 0 {width} {height}" role="img"'
         f' aria-label="{escape(label)}">'
     ]
     for frac in (0, 0.5, 1):
