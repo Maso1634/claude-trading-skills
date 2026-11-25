@@ -12,7 +12,7 @@ What it shows:
 | Broker account and positions | Alpaca API, read-only (GET account and positions only) |
 | Theses, review-due list, journal | `state/**/th_*.yaml` and `state/**/pm_*.md` (trader-memory-core). **New thesis** adds one through trader-memory-core |
 | Latest VCP screen | `reports/vcp_screener_*.json` |
-| Trade journal (the only page that saves) | `trade-journal/journal.db` + `trade-journal/screenshots/`, filled by hand or from a Robinhood CSV |
+| Trade journal (the only page that saves) | `trade-journal/journal.db` + `trade-journal/screenshots/`, filled by hand, from an IBKR Flex Query or from a Robinhood CSV |
 | Reports page | Every report above, rendered from its `.md` or `.json` |
 | Chart page (read-only) | IBKR price bars for any ticker: 1 day of 5-minute bars, 5 days of 30-minute, 3 months daily or 1 year weekly, with the last price cross-checked against Alpaca |
 | Options calculator (read-only) | Your inputs. With IBKR on: the stock price, real expirations and strikes, and each leg's bid/ask, IV and Greeks from IB Gateway, cross-checked against Alpaca. Otherwise the last IEX trade and daily bars from Alpaca |
@@ -187,11 +187,18 @@ cd dashboard && docker compose up -d --build
 
 ## Trade journal
 
-Open **Journal** in the top menu. It's for your own trades (Robinhood today), separate
+Open **Journal** in the top menu. It's for your own trades (IBKR and Robinhood), separate
 from the Alpaca account the Overview shows.
 
 - **New trade**: symbol, buy or sell, quantity, price, fee, time (Eastern), setup, planned
   stop and target, why you took it. Add the exit later as another fill on the trade's page.
+- **Import IBKR trades**: set up an Activity Flex Query once in Client Portal
+  (Performance & Reports → Flex Queries; Trades section at Execution level, XML,
+  dates `yyyyMMdd`, times `HHmmss`, separator `;`). Then either upload the XML, or put
+  `IBKR_FLEX_TOKEN` and `IBKR_FLEX_QUERY_ID` in `.env` (token from Settings → Account
+  Settings → Reporting → Flex Web Service) and press **Fetch from IBKR**. Real times
+  and commissions come in; IBKR trade IDs make re-fetching safe. Trades are filed under
+  the account "IBKR paper" (or "IBKR live" with `IBKR_MODE=live`).
 - **Import Robinhood CSV**: in Robinhood, Account → Reports and statements → Reports,
   generate an account activity report and upload the CSV. Stocks, ETFs and options come
   in; dividends, deposits and transfers are skipped. Re-importing the same file is safe.

@@ -38,6 +38,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         "TIMEZONE": os.environ.get("TZ_DISPLAY", "America/New_York"),
         "ALPACA": "env",
         "IBKR": "env",
+        "IBKR_FLEX": "env",
         "JOURNAL_DIR": os.environ.get("JOURNAL_DIR") or None,
         "SKILLS_DIR": os.environ.get("SKILLS_DIR") or None,
         "THESES_DIR": os.environ.get("THESES_DIR") or None,
@@ -48,6 +49,15 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         cfg["ALPACA"] = alpaca.from_env(os.environ)
     if cfg["IBKR"] == "env":
         cfg["IBKR"] = ibkr.reader_from_env(os.environ)
+    if cfg["IBKR_FLEX"] == "env":
+        from .journal import ibkr_flex
+
+        cfg["IBKR_FLEX"] = ibkr_flex.settings_from_env(os.environ)
+        cfg["IBKR_ACCOUNT"] = (
+            "IBKR live"
+            if os.environ.get("IBKR_MODE", "").strip().lower() == "live"
+            else "IBKR paper"
+        )
     cfg["REPORTS_DIR"] = Path(cfg["REPORTS_DIR"])
     cfg["STATE_DIR"] = Path(cfg["STATE_DIR"])
     app.config.update(cfg)

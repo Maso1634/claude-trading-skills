@@ -7,7 +7,7 @@
     <h2>Trade journal</h2>
     <div class="actions">
       <a class="btn primary" href="{{ url_for('journal.new_trade') }}">New trade</a>
-      <a class="btn" href="{{ url_for('journal.import_csv') }}">Import Robinhood CSV</a>
+      <a class="btn" href="{{ url_for('journal.import_csv') }}">Import trades</a>
       <a class="btn" href="{{ url_for('journal.stats') }}">Stats</a>
       <a class="btn" href="{{ url_for('journal.export_csv') }}">Export CSV</a>
     </div>
@@ -59,7 +59,7 @@
   {% else %}
   <p>No trades yet. Two ways to start:</p>
   <ul>
-    <li><a href="{{ url_for('journal.import_csv') }}">Import your Robinhood activity CSV</a>. Trades are grouped for you.</li>
+    <li><a href="{{ url_for('journal.import_csv') }}">Import your IBKR trades or Robinhood activity CSV</a>. Trades are grouped for you.</li>
     <li><a href="{{ url_for('journal.new_trade') }}">Log a trade by hand</a>.</li>
   </ul>
   {% endif %}
