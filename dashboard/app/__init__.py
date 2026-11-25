@@ -53,10 +53,12 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.config.update(cfg)
     tz = ZoneInfo(cfg["TIMEZONE"])
 
+    from .chart_page import bp as chart_bp
     from .journal.views import bp as journal_bp
     from .options.views import bp as options_bp
     from .thesis_form import bp as thesis_form_bp
 
+    app.register_blueprint(chart_bp)
     app.register_blueprint(journal_bp)
     app.register_blueprint(options_bp)
     app.register_blueprint(thesis_form_bp)

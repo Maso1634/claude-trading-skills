@@ -255,6 +255,44 @@ class IbkrSession:
             "source": "IBKR",
         }
 
+    def bars(self, symbol: str, duration: str, size: str) -> list[dict[str, Any]]:
+        """Price bars, oldest first. Intraday bars are regular hours only, timestamps in ET.
+
+        The newest bar can still be forming (today's daily bar, or the current 5 minutes).
+        """
+        symbol = _check_symbol(symbol)
+        ttl = 60 if "min" in size or "hour" in size else 900
+        return self._r.cached(
+            ("bars", symbol, duration, size), ttl, lambda: self._bars(symbol, duration, size)
+        )
+
+    def _bars(self, symbol: str, duration: str, size: str) -> list[dict[str, Any]]:
+        con_id = self.stock_quote(symbol)["con_id"]
+        from ib_async import Stock
+
+        contract = Stock(symbol, "SMART", "USD")
+        contract.conId = con_id
+        raw = self._conn().reqHistoricalData(contract, "", duration, size, "TRADES", True) or []
+        out = []
+        for b in raw:
+            t = b.date
+            if isinstance(t, datetime):
+                t = t.astimezone(ET)
+            close = _clean(b.close)
+            if close is None or close <= 0:
+                continue
+            out.append(
+                {
+                    "t": t,
+                    "open": _clean(getattr(b, "open", None)),
+                    "high": _clean(getattr(b, "high", None)),
+                    "low": _clean(getattr(b, "low", None)),
+                    "close": close,
+                    "volume": _clean(getattr(b, "volume", None)),
+                }
+            )
+        return out
+
     def option_chain(self, symbol: str) -> dict[str, Any]:
         symbol = _check_symbol(symbol)
         return self._r.cached(("chain", symbol), 900, lambda: self._option_chain(symbol))

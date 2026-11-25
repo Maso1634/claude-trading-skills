@@ -14,6 +14,7 @@ What it shows:
 | Latest VCP screen | `reports/vcp_screener_*.json` |
 | Trade journal (the only page that saves) | `trade-journal/journal.db` + `trade-journal/screenshots/`, filled by hand or from a Robinhood CSV |
 | Reports page | Every report above, rendered from its `.md` or `.json` |
+| Chart page (read-only) | IBKR price bars for any ticker: 1 day of 5-minute bars, 5 days of 30-minute, 3 months daily or 1 year weekly, with the last price cross-checked against Alpaca |
 | Options calculator (read-only) | Your inputs. With IBKR on: the stock price, real expirations and strikes, and each leg's bid/ask, IV and Greeks from IB Gateway, cross-checked against Alpaca. Otherwise the last IEX trade and daily bars from Alpaca |
 
 What it can't do: place, change or cancel orders. The Alpaca client in

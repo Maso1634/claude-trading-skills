@@ -266,5 +266,5 @@ legend { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 6px;
 .warnlist { margin: 0 0 var(--s3); padding-left: 1.2em; }
 .warnlist li { color: var(--warn); margin-bottom: 4px; }
 .form [hidden] { display: none; }
-.chart.payoff .dot { visibility: hidden; }
-.chart.payoff .pt:hover .dot { visibility: visible; }
+.chart.payoff .dot, .chart.dense .dot { visibility: hidden; }
+.chart.payoff .pt:hover .dot, .chart.dense .pt:hover .dot { visibility: visible; }

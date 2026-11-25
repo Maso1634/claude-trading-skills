@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ symbol ~ ' · ' if symbol }}Chart · Trading Desk{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="toolbar"><h2>Chart</h2></div>
+  <form method="get" action="{{ url_for('chart.page') }}" class="form">
+    <label>Ticker <input name="symbol" value="{{ symbol }}" placeholder="e.g. SPY" autocapitalize="characters"></label>
+    <label>Range <select name="range">
+      {% for key, r in ranges.items() %}<option value="{{ key }}" {{ 'selected' if key == range }}>{{ r[0] }}</option>{% endfor %}
+    </select></label>
+    <div class="actions wide"><button class="btn primary" type="submit">Show</button></div>
+  </form>
+  {% if not ibkr_ready %}<p class="small muted">This page needs IBKR. Set IBKR_HOST in .env and start the ib-gateway service (see the README).</p>{% endif %}
+  {% if error %}<p class="small muted">Couldn't load {{ symbol }}: {{ error }}</p>{% endif %}
+</section>
+
+{% if summary %}
+<section class="panel">
+  <h2>{{ symbol }} · {{ range_label }} <span class="chip">IBKR · {{ quote.data }}</span></h2>
+  <div class="stats">
+    <div><span class="label">Last</span><span class="value">{{ summary.last | money }}</span></div>
+    <div><span class="label">Change</span><span class="value {{ 'good' if summary.change > 0 else 'bad' if summary.change < 0 }}">{{ '%+.2f' | format(summary.change) }}{% if summary.change_pct is not none %} ({{ '%+.2f' | format(summary.change_pct) }}%){% endif %}</span></div>
+    <div><span class="label">High</span><span class="value">{{ summary.high | money if summary.high else '—' }}</span></div>
+    <div><span class="label">Low</span><span class="value">{{ summary.low | money if summary.low else '—' }}</span></div>
+  </div>
+  {{ chart }}
+  <p class="small muted">Change is measured from {{ summary.base_label }}.
+    {% if quote.data == 'delayed' %}Delayed data runs about 15 minutes behind, and the newest bar may still be forming.{% endif %}
+    {% if cross_check %}Alpaca IEX last trade {{ cross_check.price | money }}{% if cross_check.mismatch %} <span class="chip bad">differs {{ cross_check.gap | pct(1) }}, check another chart</span>{% else %} (agrees within {{ cross_check.gap | pct(1) }}; some gap is normal while IBKR is delayed){% endif %}.{% endif %}</p>
+  <details><summary>How to read this</summary>
+    <p class="explain">Each point is the closing price of one bar: 5 minutes, 30 minutes, a day or a week depending on the range. Hover or tap the chart to see a bar's time and price.</p>
+    <p class="explain">Intraday ranges show regular trading hours only (9:30 AM to 4:00 PM ET), so the line jumps from one day's close to the next day's open. That jump is the overnight gap.</p>
+  </details>
+</section>
+{% endif %}
+{% endblock %}

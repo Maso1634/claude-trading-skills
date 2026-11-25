@@ -215,3 +215,11 @@ def test_gateway_down_is_an_ibkr_error():
     with make_reader(FakeGateway(fail_connect=True)).session() as s:
         with pytest.raises(ibkr.IbkrError, match="isn't answering"):
             s.stock_quote("SPY")
+
+
+def test_bars_converts_and_skips_bad_rows():
+    gw = FakeGateway()
+    with make_reader(gw).session() as s:
+        bars = s.bars("SPY", "3 M", "1 day")
+    assert [b["close"] for b in bars] == [97.0, 98.0, 99.5]
+    assert ("hist", "3 M", "1 day") in gw.calls
