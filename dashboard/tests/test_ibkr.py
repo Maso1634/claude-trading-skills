@@ -87,6 +87,25 @@ from types import SimpleNamespace as NS  # noqa: E402
 NAN = float("nan")
 
 
+class FakeEvent:
+    """Minimal stand-in for an eventkit Event (+= / -= / emit)."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, fn):
+        self.handlers.append(fn)
+        return self
+
+    def __isub__(self, fn):
+        self.handlers.remove(fn)
+        return self
+
+    def emit(self, *args):
+        for fn in list(self.handlers):
+            fn(*args)
+
+
 class FakeGateway:
     """Stands in for ib_async.IB. Records calls; returns canned data."""
 
@@ -94,6 +113,8 @@ class FakeGateway:
         self.calls = []
         self.fail_connect = fail_connect
         self.connections = 0
+        self.errorEvent = FakeEvent()
+        self.refuse_history = None  # (code, text) -> IBKR sends an error and no bars
 
     def connect(self, host, port, clientId, readonly, timeout):
         if self.fail_connect:
@@ -126,8 +147,12 @@ class FakeGateway:
     def cancelMktData(self, c):
         pass
 
-    def reqHistoricalData(self, c, end, dur, size, what, rth):
+    def reqHistoricalData(self, c, end, dur, size, what, rth, timeout=60):
         self.calls.append(("hist", dur, size))
+        if self.refuse_history and size != "1 day":
+            self.errorEvent.emit(5, 2106, "HMDS data farm connection is OK", None)
+            self.errorEvent.emit(5, *self.refuse_history, None)
+            return []
         return [
             NS(date=date(2026, 11, 23), close=97.0),
             NS(date=date(2026, 11, 24), close=98.0),
@@ -223,3 +248,17 @@ def test_bars_converts_and_skips_bad_rows():
         bars = s.bars("SPY", "3 M", "1 day")
     assert [b["close"] for b in bars] == [97.0, 98.0, 99.5]
     assert ("hist", "3 M", "1 day") in gw.calls
+
+
+def test_empty_bars_raise_with_ibkrs_reason_and_are_not_cached():
+    gw = FakeGateway()
+    gw.refuse_history = (162, "Historical Market Data Service error message:pacing violation")
+    reader = make_reader(gw)
+    with reader.session() as s:
+        with pytest.raises(ibkr.IbkrError, match="pacing violation") as err:
+            s.bars("SPY", "1 D", "5 mins")
+    assert "data farm" not in str(err.value)  # status notices are left out
+    gw.refuse_history = None
+    with reader.session() as s:
+        assert s.bars("SPY", "1 D", "5 mins")  # asked again, not served the failure
+    assert not gw.errorEvent.handlers  # the listener is removed after each request
