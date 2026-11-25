@@ -33,7 +33,7 @@ from flask import (
 
 from ..charts import line_chart
 from ..security import same_origin
-from . import db, pnl, robinhood
+from . import db, ibkr_flex, pnl, robinhood
 
 bp = Blueprint("journal", __name__, url_prefix="/journal")
 
@@ -534,23 +534,54 @@ def delete_attachment(trade_id: int, attachment_id: int):
     return _back("journal.detail", "Screenshot removed.", trade_id=trade_id)
 
 
+def _import_page(outcome=None, error=None, status=200):
+    flex = current_app.config.get("IBKR_FLEX")
+    return render_template(
+        "journal/import.html", outcome=outcome, error=error, flex_ready=bool(flex)
+    ), status
+
+
+def _store(parsed, account: str, source: str):
+    outcome = db.import_fills(get_conn(), parsed.fills, account=account, source=source)
+    outcome["skipped"] = parsed.skipped
+    outcome["errors"] = parsed.errors
+    return _import_page(outcome)
+
+
 @bp.route("/import", methods=["GET", "POST"])
 def import_csv():
     if request.method == "GET":
-        return render_template("journal/import.html", outcome=None)
+        return _import_page()
+    kind = request.form.get("kind", "robinhood")
+    ibkr_account = current_app.config.get("IBKR_ACCOUNT", "IBKR paper")
+    if kind == "ibkr-fetch":
+        flex = current_app.config.get("IBKR_FLEX")
+        if not flex:
+            return _import_page(
+                error="IBKR_FLEX_TOKEN and IBKR_FLEX_QUERY_ID aren't set in .env.", status=400
+            )
+        try:
+            parsed = ibkr_flex.parse(ibkr_flex.fetch(*flex))
+        except (ibkr_flex.FlexError, ibkr_flex.NotFlexXML) as exc:
+            return _import_page(error=str(exc), status=502)
+        except OSError as exc:
+            return _import_page(error=f"Couldn't reach IBKR's Flex Web Service: {exc}", status=502)
+        return _store(parsed, ibkr_account, "ibkr")
     upload = request.files.get("csv")
     if not upload or not upload.filename:
-        return render_template(
-            "journal/import.html", outcome=None, error="Choose your Robinhood CSV file first."
-        ), 400
+        what = "IBKR Flex XML" if kind == "ibkr-file" else "Robinhood CSV"
+        return _import_page(error=f"Choose your {what} file first.", status=400)
+    if kind == "ibkr-file":
+        try:
+            parsed = ibkr_flex.parse(upload.read())
+        except (ibkr_flex.FlexError, ibkr_flex.NotFlexXML) as exc:
+            return _import_page(error=str(exc), status=400)
+        return _store(parsed, ibkr_account, "ibkr")
     try:
         parsed = robinhood.parse(upload.read())
     except robinhood.NotRobinhoodCSV as exc:
-        return render_template("journal/import.html", outcome=None, error=str(exc)), 400
-    outcome = db.import_fills(get_conn(), parsed.fills)
-    outcome["skipped"] = parsed.skipped
-    outcome["errors"] = parsed.errors
-    return render_template("journal/import.html", outcome=outcome)
+        return _import_page(error=str(exc), status=400)
+    return _store(parsed, "Robinhood", "robinhood")
 
 
 @bp.get("/export.csv")

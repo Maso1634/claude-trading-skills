@@ -223,3 +223,58 @@ def test_delete_needs_confirm_and_export(client):
     assert client.get(f"/journal/{tid}").status_code == 200
     post(client, f"/journal/{tid}/delete", {"confirm": "yes"})
     assert client.get(f"/journal/{tid}").status_code == 404
+
+
+def test_import_ibkr_flex_file_twice(client, jdir):
+    from .test_journal_ibkr_flex import SAMPLE as FLEX
+
+    def upload():
+        return post(
+            client,
+            "/journal/import",
+            {"kind": "ibkr-file", "csv": (io.BytesIO(FLEX.encode()), "flex.xml")},
+            content_type="multipart/form-data",
+        )
+
+    body = upload().get_data(as_text=True)
+    assert "CASH × 1" in body
+    assert "Already imported" in upload().get_data(as_text=True)
+    import sqlite3
+
+    conn = sqlite3.connect(jdir / "journal.db")
+    assert conn.execute("SELECT COUNT(*) FROM fill WHERE source = 'ibkr'").fetchone()[0] == 4
+    trades = dict(conn.execute("SELECT symbol, id FROM trade").fetchall())
+    accounts = {r[0] for r in conn.execute("SELECT account FROM trade")}
+    conn.close()
+    assert accounts == {"IBKR paper"}
+    # Sold to open at 0.80, expired: +80 minus the 0.65 commission.
+    page = client.get(f"/journal/{trades['AAA']}").get_data(as_text=True)
+    assert "$79.35" in page and "closed" in page
+
+
+def test_import_ibkr_fetch(client, monkeypatch):
+    from app.journal import ibkr_flex
+
+    from .test_journal_ibkr_flex import SAMPLE as FLEX
+
+    client.application.config["IBKR_FLEX"] = ("tok", "42")
+    seen = []
+    monkeypatch.setattr(ibkr_flex, "fetch", lambda t, q: seen.append((t, q)) or FLEX.encode())
+    assert "Fetch from IBKR" in client.get("/journal/import").get_data(as_text=True)
+    r = post(client, "/journal/import", {"kind": "ibkr-fetch"})
+    assert r.status_code == 200 and seen == [("tok", "42")]
+    assert "BBB" in client.get("/journal/").get_data(as_text=True)
+
+    def refuse(t, q):
+        raise ibkr_flex.FlexError("IBKR: Token has expired. (code 1012)")
+
+    monkeypatch.setattr(ibkr_flex, "fetch", refuse)
+    r = post(client, "/journal/import", {"kind": "ibkr-fetch"})
+    assert r.status_code == 502 and "Token has expired" in r.get_data(as_text=True)
+
+
+def test_import_ibkr_fetch_needs_settings(client):
+    client.application.config["IBKR_FLEX"] = None
+    assert "Fetch from IBKR" not in client.get("/journal/import").get_data(as_text=True)
+    r = post(client, "/journal/import", {"kind": "ibkr-fetch"})
+    assert r.status_code == 400 and "IBKR_FLEX_TOKEN" in r.get_data(as_text=True)

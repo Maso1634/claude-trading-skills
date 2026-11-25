@@ -2,8 +2,36 @@
 {% block title %}Import · Trading Desk{% endblock %}
 {% block content %}
 <section class="panel">
+  <h2>Import IBKR trades</h2>
+  {% if flex_ready %}
+  <form method="post" class="form">
+    <input type="hidden" name="kind" value="ibkr-fetch">
+    <p class="small wide">Runs your Flex Query on IBKR's side and imports the trades it lists (usually the last 365 days). Takes a few seconds.</p>
+    <div class="actions wide"><button class="btn primary" type="submit">Fetch from IBKR</button></div>
+  </form>
+  {% else %}
+  <p class="small muted">To fetch automatically, set <code>IBKR_FLEX_TOKEN</code> and <code>IBKR_FLEX_QUERY_ID</code> in <code>.env</code> and rebuild. Or upload the file below.</p>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" class="form">
+    <input type="hidden" name="kind" value="ibkr-file">
+    <label class="wide">Flex Query XML file <input type="file" name="csv" accept=".xml,text/xml,application/xml"></label>
+    <div class="actions wide"><button class="btn" type="submit">Upload</button></div>
+  </form>
+  <h3>Setting up the Flex Query (once)</h3>
+  <ol class="small">
+    <li>In IBKR Client Portal, open <b>Performance &amp; Reports</b> → <b>Flex Queries</b> and add an <b>Activity Flex Query</b>.</li>
+    <li>Tick only the <b>Trades</b> section, choose <b>Execution</b>, and select all fields.</li>
+    <li>Format <b>XML</b>, period <b>Last 365 Calendar Days</b>, date <code>yyyyMMdd</code>, time <code>HHmmss</code>, separator <code>;</code>.</li>
+    <li>For the Fetch button: <b>Settings</b> → <b>Account Settings</b> → <b>Reporting</b> → <b>Flex Web Service</b>, generate a token, and put it and the query ID in <code>.env</code>.</li>
+  </ol>
+  <p class="small muted">Stocks, ETFs and options are imported with their real times and commissions; currency trades and other asset types are skipped.
+  Each trade has an IBKR trade ID, so fetching again only adds new trades. Expired, assigned and exercised options close at $0.</p>
+</section>
+
+<section class="panel">
   <h2>Import Robinhood activity CSV</h2>
   <form method="post" enctype="multipart/form-data" class="form">
+    <input type="hidden" name="kind" value="robinhood">
     <label class="wide">CSV file <input type="file" name="csv" accept=".csv,text/csv"></label>
     <div class="actions wide"><button class="btn primary" type="submit">Import</button></div>
   </form>

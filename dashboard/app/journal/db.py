@@ -408,9 +408,9 @@ def _open_trade_for(conn: sqlite3.Connection, instrument: int) -> tuple[int, Dec
 
 
 def import_fills(
-    conn: sqlite3.Connection, parsed: list, account: str = "Robinhood"
+    conn: sqlite3.Connection, parsed: list, account: str = "Robinhood", source: str = "robinhood"
 ) -> dict[str, Any]:
-    """Store parsed CSV fills and group them into trades.
+    """Store parsed broker fills (Robinhood CSV or IBKR Flex) and group them into trades.
 
     A trade starts when a position goes from flat to open and ends when it's flat
     again. Each option contract is its own trade at first; use Merge on the trade
@@ -463,7 +463,7 @@ def import_fills(
                     p.executed_at,
                     fee=p.fee,
                     seq=seq_base + p.seq,
-                    source="robinhood",
+                    source=source,
                     source_key=p.source_key + ":a",
                     note=p.note,
                 )
@@ -479,7 +479,7 @@ def import_fills(
                     p.price,
                     p.executed_at,
                     seq=seq_base + p.seq,
-                    source="robinhood",
+                    source=source,
                     source_key=p.source_key,
                     note=p.note,
                 )
@@ -495,7 +495,7 @@ def import_fills(
             p.executed_at,
             fee=p.fee,
             seq=seq_base + p.seq,
-            source="robinhood",
+            source=source,
             source_key=p.source_key,
             note=p.note,
         )
