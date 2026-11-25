@@ -224,6 +224,10 @@ class IbkrBarSource:
 
     name = "ibkr"
     CLIENT_ID = 50  # the dashboard's web workers use 100+
+    # IBKR's daily volume is regular-hours only and leaves out some trade types,
+    # so it runs 20%+ below the SIP tape. Check price here and leave volume to
+    # the next cross-check source.
+    compares_volume = False
 
     def __init__(self, host: str, port: int = 4004, ib_module=None, now=None, timeout: int = 10):
         if not host:
@@ -290,7 +294,7 @@ class IbkrBarSource:
                             "low": b.low,
                             "close": b.close,
                             "adjClose": b.close,
-                            "volume": float(b.volume),
+                            "volume": None,  # not comparable with SIP (see compares_volume)
                         }
                     )
                 if rows:
@@ -558,13 +562,18 @@ class BarsClient:
         return {"symbol": symbol, "historical": rows[:days]}
 
     def cross_check(self, symbols: list[str]) -> dict[str, dict]:
-        """Compare each symbol's newest session against a different source."""
+        """Compare each symbol's newest session against a different source.
+
+        A price-only source (``compares_volume = False``, e.g. IBKR) settles the
+        price; the next source that has the symbol then adds the volume check.
+        """
         results: dict[str, dict] = {}
         for source in self.cross_check_sources:
             todo = [
                 s
                 for s in symbols
-                if s not in results and self.source_of.get(s) not in (None, source.name)
+                if (s not in results or results[s].get("volume_pending"))
+                and self.source_of.get(s) not in (None, source.name)
             ]
             if not todo:
                 continue
@@ -575,9 +584,24 @@ class BarsClient:
                 continue
             for sym in todo:
                 check = compare_latest(self.histories.get(sym, []), other.get(sym, []))
-                if check["status"] != "unavailable":
+                if check["status"] == "unavailable":
+                    continue
+                prior = results.get(sym)
+                if prior is None:
                     check["other_source"] = source.name
+                    if not getattr(source, "compares_volume", True):
+                        check["volume_pending"] = True
                     results[sym] = check
+                    continue
+                # prior is price-only: take only the volume from this source
+                prior.pop("volume_pending", None)
+                if "volume_diff_pct" in check:
+                    prior["volume_diff_pct"] = check["volume_diff_pct"]
+                    prior["volume_source"] = source.name
+                    if check["status"] == "volume_mismatch" and prior["status"] == "ok":
+                        prior["status"] = "volume_mismatch"
+        for check in results.values():
+            check.pop("volume_pending", None)
         for sym in symbols:
             results.setdefault(sym, {"status": "unavailable"})
         return results
